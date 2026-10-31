@@ -1,0 +1,5 @@
+target
+.git
+*.json.tmp
+wallet*.json
+.cookie

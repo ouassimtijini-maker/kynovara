@@ -1,0 +1,10 @@
+# Les fichiers texte de données (dont la liste de mots BIP-39, vérifiée par son
+# empreinte SHA-256 officielle) ne doivent jamais voir leurs fins de ligne
+# converties : Git pour Windows convertit par défaut en CRLF.
+*.txt -text
+
+# Le reste du code source : fins de ligne LF dans le dépôt.
+*.rs text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.yml text eol=lf

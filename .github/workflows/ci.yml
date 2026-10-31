@@ -1,0 +1,36 @@
+# Intégration continue : formatage, lint strict et tests sous Linux et Windows,
+# plus une vérification des avis de sécurité des dépendances (RustSec).
+name: CI
+
+on:
+  push:
+  pull_request:
+  schedule:
+    # Chaque lundi : une faille découverte dans une dépendance doit se voir
+    # même si le code de Kynovara ne change pas.
+    - cron: "17 6 * * 1"
+
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      # La version de Rust vient de rust-toolchain.toml.
+      - run: rustup toolchain install
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace --release
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      # Crée Cargo.lock s'il manque, sans modifier un Cargo.lock existant.
+      - run: cargo fetch
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit

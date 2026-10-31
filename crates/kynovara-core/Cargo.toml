@@ -1,0 +1,17 @@
+[package]
+name = "kynovara-core"
+description = "Règles de consensus, types et validation de la blockchain Kynovara"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+sha2.workspace = true
+ed25519-dalek.workspace = true
+# Dépendance directe uniquement pour épingler la version exacte (consensus).
+curve25519-dalek.workspace = true
+
+[lints]
+workspace = true

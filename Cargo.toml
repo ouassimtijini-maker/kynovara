@@ -1,0 +1,64 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/kynovara-core",
+    "crates/kynovara-node",
+    "crates/kynovara-wallet",
+]
+
+[workspace.package]
+version = "0.3.2"
+edition = "2024"
+rust-version = "1.89"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+kynovara-core = { path = "crates/kynovara-core" }
+
+# Cryptographie. ed25519-dalek et curve25519-dalek sont épinglés à une version
+# exacte : la vérification des signatures est une RÈGLE DE CONSENSUS, elle ne
+# doit jamais changer à cause d'une mise à jour automatique.
+sha2 = "0.10.9"
+ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["std", "zeroize"] }
+curve25519-dalek = { version = "=4.1.3", default-features = false, features = ["zeroize"] }
+getrandom = { version = "0.2.16", features = ["std"] }
+zeroize = "~1.8"
+hmac = "0.12.1"
+pbkdf2 = { version = "0.12.2", default-features = false, features = ["hmac"] }
+argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"] }
+chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
+
+# Utilitaires.
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+rpassword = "7.4"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+print_stdout = "allow"
+
+# Les dépendances (cryptographie, hachage) sont optimisées même en mode debug :
+# sans cela, les tests et le minage en mode debug seraient très lents.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+# Un débordement arithmétique arrête le programme au lieu de « boucler »
+# silencieusement : pour du code de consensus, une erreur bruyante vaut mieux
+# qu'un calcul faux. (Les calculs de hachage utilisent des opérations
+# explicitement modulaires et ne sont pas concernés.)
+overflow-checks = true

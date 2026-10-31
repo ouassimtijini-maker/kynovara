@@ -1,0 +1,10 @@
+# Fichiers de compilation
+/target/
+
+# Fichiers temporaires
+*.tmp
+
+# Données locales et portefeuilles : ne JAMAIS les ajouter à Git
+*.json.tmp
+wallet*.json
+.cookie

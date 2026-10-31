@@ -1,0 +1,6 @@
+# Version exacte du compilateur avec laquelle Kynovara est construit et testé.
+# rustup l'installe automatiquement à la première compilation.
+[toolchain]
+channel = "1.97.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

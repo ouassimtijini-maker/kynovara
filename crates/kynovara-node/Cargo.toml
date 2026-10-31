@@ -1,0 +1,22 @@
+[package]
+name = "kynovara-node"
+description = "Nœud Kynovara : réseau pair-à-pair, stockage, minage et interface RPC locale"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "kynovarad"
+path = "src/main.rs"
+
+[dependencies]
+kynovara-core.workspace = true
+getrandom.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+zeroize.workspace = true
+
+[lints]
+workspace = true
