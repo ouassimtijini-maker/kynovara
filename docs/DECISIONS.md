@@ -25,6 +25,11 @@ les logiciels et services financiers (OPIC au Canada, USPTO, EUIPO).
 **Où** : textes et messages (`README.md`, `docs/`, messages de genèse dans
 `crates/kynovara-core/src/params.rs`, `USER_AGENT` dans `crates/kynovara-node/src/node.rs`).
 
+**Logo — choisi le 31 octobre 2026 : « Bloc »** : un K fait de blocs, le bloc
+en pointillé en haut à droite étant le prochain bloc à miner. Fichiers et
+règles d'usage dans [`logo/`](../logo/LISEZMOI.md). Avant le réseau principal,
+vérifier qu'aucune marque déposée ne lui ressemble, avec le nom.
+
 ## 2. Symbole (ticker) — choisi : `KYNO`
 
 Aucun jeton `KYNO` trouvé le 29 octobre 2026 (attention à la ressemblance

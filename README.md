@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="logo/kyno-logo-sombre.svg">
+    <img src="logo/kyno-logo.svg" alt="KYNO · Kynovara" width="420">
+  </picture>
+</p>
+
 # Kynovara
 
 **Kynovara** est une cryptomonnaie à preuve de travail écrite en Rust, de zéro :
