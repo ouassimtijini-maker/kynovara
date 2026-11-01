@@ -31,6 +31,17 @@ docker exec kynovara kynovara-cli --datadir /data info
 Le nœud trouve seul le serveur public `51.222.143.109:19733` ; aucun port à
 ouvrir. Les envois sont bloqués jusqu'au bloc 6 000 (période de rodage).
 
+## Défi : casse Kynovara
+
+On te met au défi de casser le réseau de test, jusqu'au bloc 25 000 :
+réécrire l'historique signé, dépenser deux fois les mêmes KYNO, faire planter
+un nœud. Aucun prix, ni en argent ni en KYNO : chaque faille confirmée inscrit
+son auteur au [Mur des casseurs](MUR-DES-CASSEURS.md).
+
+- Règlement : [DEFI.md](DEFI.md)
+- Tableau du réseau en direct : <https://ouassimtijini-maker.github.io/kynovara/>
+- Signaler une faille en privé : [Report a vulnerability](https://github.com/ouassimtijini-maker/kynovara/security/advisories/new)
+
 ## Ce qu'il y a dedans
 
 | Programme | Rôle |
