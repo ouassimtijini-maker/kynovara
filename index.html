@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tableau du réseau KYNO</title>
+<meta name="description" content="Le réseau de test Kynovara en direct : hauteur, blocs, points de contrôle signés et défi « Casse Kynovara ». Les KYNO du réseau de test n'ont aucune valeur.">
+<meta property="og:title" content="Tableau du réseau KYNO">
+<meta property="og:description" content="Le réseau de test Kynovara en direct, et le défi « Casse Kynovara ».">
+<meta property="og:image" content="https://ouassimtijini-maker.github.io/kynovara/carte.png">
+<link rel="icon" href="icone.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Tableau de bord du réseau : en-tête, manche en cours, chiffres, chaîne des derniers blocs, défi, avis. */
+:root {
+  --granite: #eef1ef; --surface: #f8faf9; --filet: #c7d0cb; --encre: #13201c; --sourdine: #4a5852;
+  --epinette: #1c6a5e; --epinette-fonce: #1c6a5e; --on-epinette: #eef1ef; --epinette-vive: #62c2ae;
+  --encre-fixe: #13201c; --granite-fixe: #eef1ef; --rouille: #9a3a12; --rouille-fond: #f6e7df;
+  --titre: "Archivo", "Arial Narrow", Arial, sans-serif;
+  --texte: "Atkinson Hyperlegible", "Segoe UI", Roboto, Arial, sans-serif;
+  --code: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --granite: #0e1412; --surface: #141c19; --filet: #2a3632; --encre: #e2eae6; --sourdine: #9fb0a8; --epinette: #62c2ae; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--granite); color: var(--encre); font-family: var(--texte); font-size: 1.0625rem; line-height: 1.6; padding: 0 max(16px, env(safe-area-inset-left)) 0 max(16px, env(safe-area-inset-right)); }
+.wrap { max-width: 68rem; margin: 0 auto; }
+a { color: var(--epinette); text-underline-offset: 0.18em; }
+:focus-visible { outline: 2px solid var(--epinette); outline-offset: 2px; border-radius: 3px; }
+.titre { font-family: var(--titre); font-variation-settings: "wdth" 125; font-weight: 800; }
+.sur { font-family: var(--titre); font-variation-settings: "wdth" 112; font-weight: 600; font-size: 0.8rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--sourdine); }
+
+header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem 1.5rem; padding-block: 1.5rem 0; }
+.marque { display: inline-flex; align-items: center; gap: 0.65rem; text-decoration: none; color: var(--encre); }
+.marque svg { width: 2.1rem; height: 2.1rem; }
+.marque span { font-family: var(--titre); font-variation-settings: "wdth" 125; font-weight: 800; letter-spacing: 0.06em; font-size: 1.2rem; }
+.s { fill: var(--encre); } .a { fill: var(--epinette); } .n { fill: none; stroke: var(--epinette); stroke-width: 3; stroke-dasharray: 5 4; }
+.tag { font-family: var(--titre); font-variation-settings: "wdth" 112; font-weight: 600; font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; padding: 0.25rem 0.55rem; border-radius: 4px; background: var(--rouille-fond); color: var(--rouille); }
+
+.manche { padding-block: 2.5rem 1.5rem; display: grid; gap: 0.6rem; }
+.manche h1 { margin: 0; font-size: clamp(2rem, 5.5vw, 3.4rem); line-height: 1.04; text-wrap: balance; max-width: 20em; }
+.manche p { margin: 0; max-width: 42em; font-size: 1.15rem; }
+.alerte { display: none; background: var(--rouille-fond); color: var(--encre-fixe); border-radius: 8px; padding: 0.8rem 1rem; }
+.alerte b { color: var(--rouille); }
+
+.chiffres { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--filet); border: 1px solid var(--filet); border-radius: 8px; overflow: hidden; }
+.chiffre { background: var(--surface); padding: 1rem 1.1rem; display: grid; gap: 0.2rem; min-width: 0; }
+@media (max-width: 52rem) { .chiffres { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 30rem) { .chiffres { grid-template-columns: minmax(0, 1fr); } }
+.chiffre .val { font-family: var(--titre); font-variation-settings: "wdth" 115; font-weight: 800; font-size: 1.9rem; line-height: 1.1; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.chiffre .det { font-size: 0.92rem; color: var(--sourdine); }
+
+section { padding-block: 2.25rem 0; }
+section > h2 { margin: 0 0 0.9rem; font-size: 1.05rem; text-transform: uppercase; letter-spacing: 0.1em; font-family: var(--titre); font-variation-settings: "wdth" 115; font-weight: 700; }
+.chaine { display: flex; gap: 0.6rem; overflow-x: auto; padding-bottom: 0.5rem; }
+.bloc { flex: 0 0 9.5rem; border-radius: 4px; padding: 0.75rem; background: var(--surface); border: 1px solid var(--filet); display: grid; gap: 0.15rem; }
+.bloc.dernier { border: 2px solid var(--epinette); }
+.bloc.prochain { background: transparent; border: 2px dashed var(--epinette); color: var(--epinette); }
+.bloc .h { font-family: var(--titre); font-variation-settings: "wdth" 115; font-weight: 800; font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.bloc .x { font-family: var(--code); font-size: 0.8rem; overflow-wrap: anywhere; }
+.bloc .x b { color: var(--epinette); font-weight: 600; }
+.bloc .t { font-size: 0.82rem; color: var(--sourdine); }
+.bloc.prochain .t { color: var(--epinette); }
+
+.defi { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 1.5rem; background: var(--encre-fixe); color: var(--granite-fixe); border-radius: 8px; padding: 1.5rem; }
+.defi h2 { margin: 0 0 0.6rem; font-size: clamp(1.6rem, 4vw, 2.3rem); line-height: 1.05; text-transform: none; letter-spacing: 0; }
+.defi p { margin: 0 0 0.8rem; }
+.defi ul { margin: 0; padding-left: 1.1rem; }
+.defi a { color: var(--epinette-vive); }
+.defi .liens { display: grid; gap: 0.6rem; align-content: start; }
+.btn { display: inline-block; font: 700 1rem/1 var(--texte); text-decoration: none; padding: 0.85rem 1.1rem; border-radius: 4px; background: var(--epinette-vive); color: var(--encre-fixe) !important; text-align: center; }
+.btn.sec { background: transparent; color: var(--granite-fixe) !important; border: 2px solid var(--epinette-vive); }
+@media (max-width: 46rem) { .defi { grid-template-columns: minmax(0, 1fr); } }
+
+.avis { margin-top: 2.25rem; background: var(--rouille-fond); color: var(--encre-fixe); border-radius: 8px; padding: 0.9rem 1.1rem; }
+.avis b { color: var(--rouille); }
+footer { padding-block: 1.5rem 2.5rem; color: var(--sourdine); font-size: 0.92rem; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem 1.5rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="marque" href="https://github.com/ouassimtijini-maker/kynovara">
+      <svg viewBox="0 0 200 200" aria-hidden="true"><g class="s"><rect x="35" y="18" width="28" height="28" rx="4"></rect><rect x="35" y="52" width="28" height="28" rx="4"></rect><rect x="35" y="86" width="28" height="28" rx="4"></rect><rect x="35" y="120" width="28" height="28" rx="4"></rect><rect x="35" y="154" width="28" height="28" rx="4"></rect></g><g class="a"><rect x="69" y="86" width="28" height="28" rx="4"></rect><rect x="103" y="52" width="28" height="28" rx="4"></rect><rect x="103" y="120" width="28" height="28" rx="4"></rect><rect x="137" y="154" width="28" height="28" rx="4"></rect></g><rect class="n" x="138.5" y="19.5" width="25" height="25" rx="3.5"></rect></svg>
+      <span>KYNO</span>
+    </a>
+    <span class="tag">Réseau de test</span>
+  </header>
+
+  <div class="manche">
+    <div class="sur" id="manche-nom">Défi « Casse Kynovara »</div>
+    <h1 class="titre" id="manche-titre">Le réseau de test, en direct.</h1>
+    <p id="manche-texte">Chargement des données du serveur public…</p>
+    <div class="alerte" id="alerte" role="alert"><b>Alerte.</b> Deux points de contrôle se contredisent : le réseau est gelé jusqu'à la décision de la clé maîtresse.</div>
+  </div>
+
+  <div class="chiffres">
+    <div class="chiffre"><span class="sur">Hauteur</span><span class="val" id="hauteur">…</span><span class="det" id="sommet-age">&nbsp;</span></div>
+    <div class="chiffre"><span class="sur">Ouverture des envois</span><span class="val" id="envois">…</span><span class="det" id="envois-det">&nbsp;</span></div>
+    <div class="chiffre"><span class="sur">Fin du défi</span><span class="val" id="fin">…</span><span class="det" id="fin-det">&nbsp;</span></div>
+    <div class="chiffre"><span class="sur">Historique signé</span><span class="val" id="signe">…</span><span class="det">jusqu'à ce bloc, par le fondateur</span></div>
+    <div class="chiffre"><span class="sur">Nœuds reliés</span><span class="val" id="noeuds">…</span><span class="det">au serveur public</span></div>
+    <div class="chiffre"><span class="sur">Difficulté</span><span class="val" id="difficulte">…</span><span class="det">ajustée à chaque bloc</span></div>
+  </div>
+
+  <section aria-labelledby="h-chaine">
+    <h2 id="h-chaine">Les derniers blocs</h2>
+    <div class="chaine" id="chaine" aria-live="polite"></div>
+  </section>
+
+  <section aria-labelledby="h-defi">
+    <div class="defi">
+      <div>
+        <h2 class="titre" id="h-defi">Casse Kynovara.</h2>
+        <p>On a construit une cryptomonnaie qui ne vaut rien, et on te met au défi de la casser : réécrire l'historique signé, dépenser deux fois les mêmes KYNO, faire planter un nœud.</p>
+        <ul>
+          <li>Tout ce qui passe par le protocole Kynovara est permis.</li>
+          <li>Aucun prix, ni en argent ni en KYNO : chaque faille confirmée inscrit son auteur au Mur des casseurs.</li>
+          <li>Les failles se signalent en privé, jamais en public avant la correction.</li>
+        </ul>
+      </div>
+      <div class="liens">
+        <a class="btn" href="https://github.com/ouassimtijini-maker/kynovara/blob/main/DEFI.md">Lire le règlement</a>
+        <a class="btn sec" href="https://github.com/ouassimtijini-maker/kynovara/blob/main/docs/REJOINDRE.md">Faire tourner un nœud</a>
+        <a class="btn sec" href="https://github.com/ouassimtijini-maker/kynovara/security/advisories/new">Signaler une faille</a>
+        <a class="btn sec" href="https://github.com/ouassimtijini-maker/kynovara/blob/main/MUR-DES-CASSEURS.md">Mur des casseurs</a>
+      </div>
+    </div>
+  </section>
+
+  <p class="avis"><b>Réseau de test.</b> Les KYNO n'ont aucune valeur : aucune vente, aucune prévente, aucun investissement, aucune promesse. Toute personne qui prétend vendre des KYNO n'est pas ce projet.</p>
+
+  <footer>
+    <span id="maj">Données publiées toutes les 10 minutes par le serveur public.</span>
+    <span>Kynovara Labs · Québec · <a href="https://github.com/ouassimtijini-maker/kynovara">code source</a></span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var DEBLOCAGE = 6000, FIN = 25000, BLOC_S = 120;
+  var $ = function (id) { return document.getElementById(id); };
+  var nombre = function (n) { return Number(n).toLocaleString("fr-CA"); };
+  var date = function (blocs) {
+    return new Date(Date.now() + blocs * BLOC_S * 1000).toLocaleDateString("fr-CA", { day: "numeric", month: "long" });
+  };
+  var depuis = function (ts) {
+    var s = Math.max(0, Date.now() / 1000 - ts);
+    if (s < 90) return "à l'instant";
+    if (s < 5400) return "il y a " + Math.round(s / 60) + " min";
+    return "il y a " + Math.round(s / 3600) + " h";
+  };
+  function texte(id, valeur) { $(id).textContent = valeur; }
+
+  function afficher(s) {
+    var h = Number(s.hauteur);
+    var deb = Number(s.deblocage || DEBLOCAGE), fin = Number(s.fin_defi || FIN);
+    texte("hauteur", nombre(h));
+    texte("sommet-age", "dernier bloc " + depuis(s.date_sommet));
+    if (h < deb) {
+      texte("envois", nombre(deb - h) + " blocs");
+      texte("envois-det", "au bloc " + nombre(deb) + ", vers le " + date(deb - h));
+      texte("manche-nom", "Défi « Casse Kynovara » · manche 1 : le siège");
+      texte("manche-titre", "Réécris l'historique, si tu peux.");
+      texte("manche-texte", "Jusqu'au bloc " + nombre(deb) + ", les envois sont bloqués. Cibles : prendre 51 % de la puissance, faire accepter un bloc invalide, scinder le réseau, faire planter un nœud.");
+    } else {
+      texte("envois", "Ouverts");
+      texte("envois-det", "depuis le bloc " + nombre(deb));
+      texte("manche-nom", "Défi « Casse Kynovara » · manche 2 : la double dépense");
+      texte("manche-titre", "Dépense deux fois les mêmes KYNO, si tu peux.");
+      texte("manche-texte", "Les envois sont ouverts. Cibles : double dépense, création de KYNO hors des règles, vol d'un portefeuille.");
+    }
+    if (h >= fin) {
+      texte("fin", "Terminé");
+      texte("fin-det", "au bloc " + nombre(fin));
+      texte("manche-nom", "Défi « Casse Kynovara » · terminé");
+    } else {
+      texte("fin", nombre(fin - h) + " blocs");
+      texte("fin-det", "au bloc " + nombre(fin) + ", vers le " + date(fin - h));
+    }
+    texte("signe", s.point_controle && s.point_controle.hauteur != null ? nombre(s.point_controle.hauteur) : "—");
+    texte("noeuds", s.pairs ? nombre(s.pairs.inbound) : "—");
+    texte("difficulte", Number(s.difficulte).toLocaleString("fr-CA", { maximumFractionDigits: 0 }));
+    $("alerte").style.display = s.alerte ? "block" : "none";
+
+    var chaine = $("chaine");
+    chaine.replaceChildren();
+    var blocs = (s.blocs || []).slice().sort(function (a, b) { return a.hauteur - b.hauteur; });
+    blocs.forEach(function (b, i) {
+      var d = document.createElement("div");
+      d.className = "bloc" + (i === blocs.length - 1 ? " dernier" : "");
+      var hh = document.createElement("span"); hh.className = "h"; hh.textContent = "#" + nombre(b.hauteur);
+      var x = document.createElement("span"); x.className = "x";
+      var zeros = (String(b.bloc).match(/^0+/) || [""])[0];
+      var z = document.createElement("b"); z.textContent = zeros;
+      x.appendChild(z); x.appendChild(document.createTextNode(String(b.bloc).slice(zeros.length, 14) + "…"));
+      var t = document.createElement("span"); t.className = "t"; t.textContent = depuis(b.date) + " · " + b.transactions + " tx";
+      d.append(hh, x, t);
+      chaine.appendChild(d);
+    });
+    var p = document.createElement("div");
+    p.className = "bloc prochain";
+    p.innerHTML = '<span class="h"></span><span class="x">en minage…</span><span class="t">environ toutes les 2 min</span>';
+    p.querySelector(".h").textContent = "#" + nombre(h + 1);
+    chaine.appendChild(p);
+    chaine.scrollLeft = chaine.scrollWidth;
+    texte("maj", "Données publiées toutes les 10 minutes par le serveur public · mise à jour " + depuis(s.genere) + ".");
+  }
+
+  function charger() {
+    fetch("statut.json?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(afficher)
+      .catch(function () { texte("manche-texte", "Les données du serveur public sont indisponibles pour le moment. Réessaie dans quelques minutes."); });
+  }
+  charger();
+  setInterval(charger, 60000);
+})();
+</script>
+</body>
+</html>
