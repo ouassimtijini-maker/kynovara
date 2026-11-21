@@ -236,6 +236,7 @@ fn retarget_params() -> &'static ConsensusParams {
             default_p2p_port: base.default_p2p_port,
             default_rpc_port: base.default_rpc_port,
             pow_limit: U256::low_bits(255),
+            randomx: None,
             genesis: GenesisParams {
                 timestamp: 1_000_000,
                 target: U256::low_bits(250),

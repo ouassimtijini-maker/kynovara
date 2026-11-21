@@ -44,9 +44,33 @@ pourra **jamais** changer après le lancement.
 
 **Où** : champ `hrp` des trois réseaux dans `crates/kynovara-core/src/params.rs`.
 
-## 4. Algorithme de preuve de travail — actuellement SHA-256 double ⚠️
+## 4. Algorithme de preuve de travail — choisi : RandomX
 
 C'est la décision la plus importante pour la sécurité.
+
+**Choisi (20 novembre 2026)** : **RandomX**, version 0.4.0.
+
+- **Testnet** : mise à jour du réseau à une hauteur fixe plutôt qu'un
+  nouveau testnet, pour garder l'historique, les points de contrôle signés et
+  le défi, et pour s'exercer à une vraie mise à jour de consensus : SHA-256
+  double jusqu'au bloc 15 999, RandomX à partir du bloc **16 000** (vers le
+  25 novembre 2026 ; hauteur au moment de la décision : 12 920). Tous les
+  nœuds doivent être en 0.4.0 avant.
+- **Mainnet** : RandomX dès la genèse.
+- **Regtest** : SHA-256 double (blocs instantanés pour les tests).
+- Clé RandomX et intervalles : ceux de Monero (`SPECIFICATION.md`, § 6 bis).
+
+**Encore à décider avant le mainnet** :
+- **RandomX tel quel ou variante propre** : avec la configuration de Monero
+  (actuelle), la puissance de Monero ou celle louée sur les places de marché
+  RandomX peut être dirigée vers Kynovara sans rien modifier (`AUDIT.md`,
+  R-16). Une variante (autre sel Argon2 dans `configuration.h`, comme
+  Wownero) l'empêche, au prix d'une copie modifiée de la bibliothèque à
+  maintenir ;
+- **mineur en mode rapide** et interface pour mineurs externes (XMRig) :
+  `AUDIT.md`, R-15.
+
+Analyse d'origine :
 
 **Risque** : SHA-256 est l'algorithme de Bitcoin. Des machines spécialisées
 (ASIC) immensément plus puissantes que n'importe quel PC existent, et leur
@@ -112,8 +136,12 @@ concurrents (« orphelins ») ; une taille plus grande alourdit les nœuds.
 - **Cible de la genèse** (difficulté des 120 premiers blocs) : à régler selon
   la puissance attendue au lancement. Trop facile : les premiers blocs partent
   en quelques secondes ; trop difficile : démarrage lent. La difficulté
-  s'ajuste ensuite automatiquement.
-- **Fenêtre LWMA** (120 blocs) et **cible minimale** (`pow_limit`).
+  s'ajuste ensuite automatiquement. Valeur provisoire depuis le passage à
+  RandomX : 2²⁴⁰ − 1, environ 65 000 essais par bloc, soit 2 minutes pour
+  ≈ 550 essais/s (une dizaine de fils en mode léger). Mesurer la puissance
+  réelle sur le testnet avant de la fixer.
+- **Fenêtre LWMA** (120 blocs) et **cible minimale** RandomX (provisoire :
+  2²⁴⁸ − 1).
 
 **Où** : `MAINNET` dans `crates/kynovara-core/src/params.rs`.
 

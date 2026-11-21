@@ -193,7 +193,9 @@ impl Node {
                 continue;
             }
             let block = chain.store().get(hash)?.ok_or_else(|| format!("bloc {hash} introuvable dans le stockage"))?;
-            if let Err(e) = chain.process_block(block, now) {
+            // Nos propres fichiers : la preuve RandomX, vérifiée avant
+            // l'écriture, n'est pas recalculée (toutes les autres règles le sont).
+            if let Err(e) = chain.process_stored_block(block, now) {
                 warn!("chaîne", "bloc stocké {hash} ignoré : {e}");
             }
             if (i + 1) % 5_000 == 0 {
@@ -1048,6 +1050,8 @@ impl Node {
                 for (h, e) in invalid {
                     if h == hash {
                         own_error = Some(e);
+                    } else if matches!(e, BlockError::PowUnavailable(_)) {
+                        crate::error!("chaîne", "bloc {h} non vérifié : {e}");
                     } else {
                         warn!("chaîne", "bloc {h} invalide : {e}");
                     }
@@ -1080,7 +1084,20 @@ impl Node {
             Ok(ProcessOutcome::AlreadyKnown) => Ok(BlockResult::AlreadyKnown),
             Err(e) => {
                 match source {
+                    // Cible fausse : signe d'un pair resté sur d'autres règles
+                    // de difficulté, typiquement un nœud 0.3.x après le passage
+                    // à RandomX. Vérification bon marché : on se déconnecte sans
+                    // bannir, pour qu'il puisse revenir une fois à jour.
+                    Some(p) if matches!(e, BlockError::BadTarget { .. }) => {
+                        warn!("p2p", "pair {} : bloc refusé ({e}), déconnexion sans bannissement", p.addr);
+                        p.disconnect();
+                    }
                     Some(p) if e.is_peer_fault() => self.punish(p, BAN_THRESHOLD, &format!("bloc refusé : {e}")),
+                    // RandomX indisponible (mémoire…) : le nœud ne peut plus
+                    // suivre la chaîne, cela doit se voir dans le journal.
+                    _ if matches!(e, BlockError::PowUnavailable(_)) => {
+                        crate::error!("chaîne", "bloc {hash} non vérifié : {e}")
+                    }
                     _ => debug!("chaîne", "bloc {hash} refusé : {e}"),
                 }
                 Err(e)

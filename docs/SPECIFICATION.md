@@ -13,9 +13,12 @@ de référence est dans `crates/kynovara-core`.
 | Octets magiques (P2P) | `KYNM` | `KYNT` | `KYNR` |
 | Ports P2P / RPC | 9733 / 9734 | 19733 / 19734 | 29733 / 29734 |
 | Temps de bloc visé (T) | 120 s | 120 s | 120 s |
+| Preuve de travail (§ 6 bis) | RandomX dès la genèse | SHA-256 double jusqu'au bloc 15 999, **RandomX à partir du bloc 16 000** | SHA-256 double |
 | Fenêtre LWMA (N) | 120 blocs | 60 blocs | — (difficulté fixe) |
-| Cible minimale (`pow_limit`) | 2²³² − 1 | 2²⁴⁰ − 1 | 2²⁵⁵ − 1 |
-| Cible de la genèse | à fixer au lancement | 2²²⁶ − 1 | 2²⁵⁵ − 1 |
+| Cible minimale (`pow_limit`), SHA-256 double | — | 2²⁴⁰ − 1 | 2²⁵⁵ − 1 |
+| Cible minimale, RandomX | 2²⁴⁸ − 1 (provisoire) | 2²⁴⁸ − 1 | — |
+| Cible de la genèse | 2²⁴⁰ − 1 (provisoire, à fixer au lancement) | 2²²⁶ − 1 | 2²⁵⁵ − 1 |
+| Cible des premiers blocs RandomX | celle de la genèse | 2²⁴² − 1 (blocs 16 000 à 16 060) | — |
 | Horodatage max. dans le futur (FTL) | 720 s | 360 s | 86 400 s |
 | Récompense initiale | 50 KYNO | 50 KYNO | 50 KYNO |
 | Division par deux tous les | 1 051 200 blocs (≈ 4 ans) | 1 051 200 | 150 |
@@ -41,7 +44,10 @@ dépasser cette borne **[consensus]**.
 
 ## 3. Hachage [consensus]
 
-- `sha256d(x) = SHA256(SHA256(x))` : empreinte des en-têtes de bloc.
+- `sha256d(x) = SHA256(SHA256(x))` : empreinte (identifiant) des en-têtes de
+  bloc, quel que soit l'algorithme de preuve de travail.
+- `randomx(clé, x)` : empreinte RandomX (§ 6 bis), pour la preuve de travail
+  des blocs RandomX seulement.
 - Hachage étiqueté (même construction que BIP-340) :
   `H_tag(x) = SHA256(SHA256(tag) ‖ SHA256(tag) ‖ x)`.
 
@@ -132,8 +138,9 @@ Pour chaque entrée d'un transfert inclus à la hauteur `h` :
 | cible | 32 | entier 256 bits gros-boutiste |
 | nonce | 8 | u64 petit-boutiste |
 
-L'empreinte du bloc est `sha256d(en-tête)`. Le bloc complet est l'en-tête
-suivi de la liste des transactions (la première est la récompense).
+L'empreinte du bloc (son identifiant) est `sha256d(en-tête)`, quel que soit
+l'algorithme de preuve de travail. Le bloc complet est l'en-tête suivi de la
+liste des transactions (la première est la récompense).
 
 ### Arbre de Merkle [consensus]
 
@@ -144,11 +151,14 @@ différentes ne peuvent pas avoir la même racine (faille CVE-2012-2459 évitée
 
 ### Règles d'un bloc [consensus]
 
-Sans contexte, dans cet ordre :
+Sans contexte, dans cet ordre, `h'` étant la hauteur annoncée par la
+récompense (vérifiée à la règle 12) :
 
 1. version = 1 ;
-2. `0 < cible ≤ pow_limit` ;
-3. **preuve de travail** : `sha256d(en-tête)`, lu comme entier gros-boutiste, ≤ cible ;
+2. `0 < cible ≤` cible minimale de l'algorithme de la hauteur `h'` ;
+3. **preuve de travail SHA-256 double** (si la hauteur `h'` est en SHA-256
+   double) : `sha256d(en-tête)`, lu comme entier gros-boutiste, ≤ cible. La
+   preuve RandomX est vérifiée en contexte (règle 13 bis) ;
 4. la racine de Merkle correspond aux transactions ;
 5. au moins une transaction ; taille ≤ 1 000 000 octets ;
 6. la première transaction est une récompense, aucune autre ne l'est ;
@@ -167,7 +177,13 @@ En contexte (parent connu, de hauteur `h − 1`) :
 12. la récompense engage la hauteur `h` ;
 13. **période de rodage** : si `h < transfers_unlock_height`, le bloc ne
     contient que sa récompense de minage (aucun transfert). Le bloc est refusé
-    avant d'être stocké, et la règle est revérifiée à la connexion.
+    avant d'être stocké, et la règle est revérifiée à la connexion ;
+
+13 bis. **preuve de travail RandomX** (si la hauteur `h` est en RandomX),
+    vérifiée en dernier car c'est la plus coûteuse : `randomx(clé, en-tête)`,
+    lu comme entier gros-boutiste, ≤ cible, avec la clé de la hauteur `h` sur
+    la branche du parent (§ 6 bis). Si le calcul est impossible (mémoire
+    insuffisante), le bloc n'est ni accepté ni déclaré invalide.
 
 Validation complète (au moment de connecter le bloc à l'état UTXO) :
 
@@ -186,11 +202,72 @@ bloc de fin et le temps restant.
 Les sorties de la récompense du **bloc de genèse** ne sont jamais ajoutées à
 l'ensemble UTXO (aucune pré-extraction).
 
+## 6 bis. Preuve de travail RandomX [consensus]
+
+RandomX est l'algorithme de Monero, conçu pour les processeurs ordinaires :
+chaque essai exécute des programmes aléatoires dans une machine virtuelle qui
+exige beaucoup de mémoire, ce qui ôte presque tout avantage aux circuits
+spécialisés (ASIC) et rend inutile la puissance SHA-256 louée à l'heure.
+Kynovara utilise **RandomX tel quel** (configuration de Monero, version de
+référence tevador/RandomX), via la bibliothèque `randomx-rs` épinglée à la
+version 1.6.0.
+
+- **Algorithme d'un bloc** : RandomX si `h ≥ activation` (0 sur le mainnet,
+  16 000 sur le testnet), SHA-256 double sinon. Le regtest reste en SHA-256
+  double.
+- **Preuve** : `randomx(clé, en-tête)` (116 octets), lu comme entier
+  gros-boutiste, ≤ cible.
+- **Clé** : l'empreinte `sha256d` d'un bloc plus ancien de la **même
+  branche**, à la hauteur `hc(h)`, avec un intervalle `I` = 2 048 blocs et un
+  décalage `D` = 64 blocs (le calendrier de Monero) :
+
+  ```
+  hc(h) = 0                               si h ≤ I + D
+  hc(h) = ⌊(h − D − 1) / I⌋ × I           sinon
+  ```
+
+  La clé change donc tous les 2 048 blocs (≈ 2,8 jours), 64 blocs (≈ 2 h)
+  après le bloc qui la fournit : les mineurs la connaissent d'avance. Pour
+  `h ≥ 1`, le bloc `hc(h)` est un ancêtre strict ; deux branches qui se sont
+  séparées avant `hc(h)` ont des clés différentes. La clé de la **genèse**
+  elle-même (si elle est en RandomX) est l'empreinte nulle (32 octets à 0).
+- **Ajustement de difficulté** : il repart de zéro à l'activation (§ 7).
+
+Exemple (testnet) : le bloc 16 000 a pour clé l'empreinte du bloc 14 336
+(7 × 2 048), qui sert jusqu'au bloc 16 448 ; le bloc 16 449 prend celle du
+bloc 16 384.
+
+Mise en œuvre (hors consensus) : **mode léger**, un cache de 256 Mio par clé
+(préparé en ≈ 0,3 s) et ≈ 15 ms par empreinte, soit ≈ 60 essais par seconde et
+par fil. Les vérifications passent par un fil dédié qui garde les caches des
+deux dernières clés ; chaque fil de minage a son propre cache, gardé d'un bloc
+à l'autre. Au démarrage, les blocs relus depuis le disque du nœud ne sont pas
+revérifiés en RandomX (ils l'ont été avant d'être écrits) ; toutes les autres
+règles le sont. Un orphelin RandomX (parent inconnu) n'est gardé en attendant
+son parent que si la clé de la hauteur qu'il annonce est un bloc de la chaîne
+active ; sinon il est ignoré, sans pénalité, et redemandé pendant la
+synchronisation. La réserve garde au plus 2 orphelins par parent manquant :
+chacun coûte une vérification RandomX à l'arrivée du parent.
+
+Compilateur à la volée (JIT) : RandomX compile ses programmes en code
+machine, ce qui exige de la mémoire exécutable. Certains systèmes durcis la
+refusent (systemd `MemoryDenyWriteExecute=yes`, SELinux `deny_execmem`, PaX)
+sans que la bibliothèque s'en aperçoive : le processus planterait au premier
+calcul. Au démarrage, `kynovarad` essaie donc le JIT dans un processus fils et
+passe à l'interpréteur (mêmes empreintes, plus lent) s'il échoue. La variable
+d'environnement `KYNOVARA_RANDOMX_JIT=0` le désactive d'office (aussi pour
+`kynovara-cli genesis`).
+
 ## 7. Ajustement de difficulté : LWMA [consensus]
 
-Pour le bloc de hauteur `h + 1` (parent à la hauteur `h`) :
+Pour le bloc de hauteur `h + 1` (parent à la hauteur `h`), `début` désignant
+le premier bloc de l'algorithme du bloc `h + 1` (0, ou la hauteur
+d'activation de RandomX) et `pow_limit` la cible minimale de cet algorithme :
 
-- si `h < N` : cible = cible de la genèse ;
+- si `h < début + N` : cible = cible de départ de l'algorithme (celle de la
+  genèse, ou la cible des premiers blocs RandomX) ; la fenêtre ne contient
+  alors pas encore N + 1 blocs du nouvel algorithme, et la puissance de
+  calcul d'avant (SHA-256) n'a rien à voir avec celle de RandomX ;
 - sinon, avec les blocs `h − N … h` (N + 1 blocs) :
 
 ```
@@ -210,9 +287,22 @@ Les blocs récents pèsent plus lourd ; une longue pause est plafonnée à 6 T ;
 un horodatage qui recule ne crée pas de durée négative. En regtest, la cible
 vaut toujours `pow_limit`.
 
+Au passage à RandomX du testnet, les blocs 16 000 à 16 060 ont donc la cible
+2²⁴² − 1 (environ 16 000 essais), et LWMA reprend au bloc 16 061 avec une
+fenêtre entièrement RandomX.
+
 ## 8. Travail et choix de la chaîne [consensus]
 
-- Travail d'un bloc : `2²⁵⁶ / (cible + 1)`.
+- Travail d'un bloc : `2²⁵⁶ / (cible + 1)`, le nombre moyen d'essais de son
+  algorithme.
+- Le travail cumulé d'une branche a **deux composantes**, le travail RandomX
+  et le travail SHA-256 double, qui ne s'additionnent jamais : un essai
+  SHA-256 et un essai RandomX n'ont rien de comparable. Deux branches se
+  comparent d'abord à leur travail **RandomX**, puis, à égalité (en
+  particulier avant l'activation de RandomX), à leur travail SHA-256. Sans
+  cela, quelques blocs SHA-256 un peu plus difficiles minés juste avant
+  l'activation pèseraient plus que des mois de blocs RandomX (constat V-1
+  d'`AUDIT.md`).
 - La chaîne active est la chaîne **valide** de plus grand **travail cumulé**
   (pas la plus longue). À travail égal, la première reçue est conservée.
 - Réorganisation : retour au point commun avec les données d'annulation (les

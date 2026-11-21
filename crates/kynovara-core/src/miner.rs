@@ -1,16 +1,21 @@
-//! Construction des blocs à miner et boucle de recherche du nonce.
+//! Construction des blocs à miner et boucles de recherche du nonce.
 //!
-//! Optimisation classique : les 64 premiers octets de l'en-tête ne changent
-//! pas pendant la recherche, l'état interne de SHA-256 après ces 64 octets
+//! SHA-256 double : les 64 premiers octets de l'en-tête ne changent pas
+//! pendant la recherche, l'état interne de SHA-256 après ces 64 octets
 //! (« midstate ») est donc calculé une seule fois. Chaque essai ne coûte
 //! ensuite que deux compressions SHA-256.
+//!
+//! RandomX : chaque essai est une empreinte RandomX complète de l'en-tête
+//! (environ 15 ms en mode léger), avec un [`RandomXHasher`] propre au fil
+//! de calcul et à la clé du bloc (voir `pow.rs`).
 
-use crate::block::{BLOCK_VERSION, Block, BlockHeader, HEADER_SIZE, MAX_BLOCK_SIZE};
+use crate::block::{BLOCK_VERSION, Block, BlockHeader, HEADER_SIZE, MAX_BLOCK_SIZE, hash_meets_target};
 use crate::chain::{BlockStore, Chain};
 use crate::crypto::PubKeyHash;
 use crate::hash::Hash256;
 use crate::mempool::Mempool;
 use crate::merkle::merkle_root;
+use crate::pow::{PowError, RandomXHasher};
 use crate::tx::{MAX_COINBASE_EXTRA, Transaction, TxOut};
 use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -24,6 +29,8 @@ pub struct BlockTemplate {
     pub block: Block,
     pub height: u64,
     pub fees: u64,
+    /// Clé RandomX du bloc (None : preuve de travail en SHA-256 double).
+    pub randomx_key: Option<Hash256>,
 }
 
 /// Construit un modèle de bloc sur le sommet actuel de la chaîne.
@@ -53,7 +60,7 @@ pub fn create_block_template<S: BlockStore>(
     transactions.push(coinbase);
     transactions.extend(selected.into_iter().map(|e| e.tx.clone()));
     let ids: Vec<Hash256> = transactions.iter().map(Transaction::wtxid).collect();
-    let target = chain.next_target_after(&tip.hash).unwrap_or(chain.params().pow_limit);
+    let target = chain.next_target_after(&tip.hash).unwrap_or(chain.params().pow_limit_at(height));
     let header = BlockHeader {
         version: BLOCK_VERSION,
         prev_hash: tip.hash,
@@ -62,7 +69,8 @@ pub fn create_block_template<S: BlockStore>(
         target,
         nonce: 0,
     };
-    BlockTemplate { block: Block { header, transactions }, height, fees }
+    let randomx_key = chain.randomx_key_for_child(&tip.hash);
+    BlockTemplate { block: Block { header, transactions }, height, fees, randomx_key }
 }
 
 /// Résultat d'une session de minage.
@@ -126,6 +134,36 @@ pub fn mine(
     MineResult::Exhausted
 }
 
+/// Comme [`mine`], avec RandomX : `hasher` doit avoir la clé du bloc. Chaque
+/// essai coûte une empreinte RandomX complète, le signal d'arrêt est donc
+/// consulté avant chaque essai.
+pub fn mine_randomx(
+    hasher: &RandomXHasher,
+    header: &BlockHeader,
+    start: u64,
+    step: u64,
+    max_attempts: u64,
+    stop: &AtomicBool,
+    hashes: &AtomicU64,
+) -> Result<MineResult, PowError> {
+    let mut bytes = header.to_array();
+    let step = step.max(1);
+    let mut nonce = start;
+    for _ in 0..max_attempts {
+        if stop.load(Ordering::Relaxed) {
+            return Ok(MineResult::Stopped);
+        }
+        bytes[HEADER_SIZE - 8..].copy_from_slice(&nonce.to_le_bytes());
+        let hash = hasher.hash(&bytes)?;
+        hashes.fetch_add(1, Ordering::Relaxed);
+        if hash_meets_target(&hash, &header.target) {
+            return Ok(MineResult::Found(nonce));
+        }
+        nonce = nonce.wrapping_add(step);
+    }
+    Ok(MineResult::Exhausted)
+}
+
 /// Mine un en-tête dans le fil d'exécution courant (regtest, outils).
 /// Renvoie `None` si aucun nonce n'a été trouvé en `max_attempts` essais.
 pub fn mine_header(header: &mut BlockHeader, max_attempts: u64) -> Option<u64> {
@@ -137,6 +175,23 @@ pub fn mine_header(header: &mut BlockHeader, max_attempts: u64) -> Option<u64> {
             Some(nonce)
         }
         _ => None,
+    }
+}
+
+/// Comme [`mine_header`], avec RandomX (`hasher` doit avoir la clé du bloc).
+pub fn mine_header_randomx(
+    hasher: &RandomXHasher,
+    header: &mut BlockHeader,
+    max_attempts: u64,
+) -> Result<Option<u64>, PowError> {
+    let stop = AtomicBool::new(false);
+    let hashes = AtomicU64::new(0);
+    match mine_randomx(hasher, header, 0, 1, max_attempts, &stop, &hashes)? {
+        MineResult::Found(nonce) => {
+            header.nonce = nonce;
+            Ok(Some(nonce))
+        }
+        _ => Ok(None),
     }
 }
 
@@ -182,5 +237,39 @@ mod tests {
         assert_eq!(hashes.load(Ordering::Relaxed), 10_000);
         stop.store(true, Ordering::Relaxed);
         assert_eq!(mine(&header, 0, 1, 10_000, &stop, &hashes), MineResult::Stopped);
+    }
+
+    #[test]
+    fn randomx_mining_finds_the_first_valid_nonce() {
+        use crate::pow::randomx_meets_target;
+        let key = Hash256([6; 32]);
+        let hasher = RandomXHasher::new(&key).unwrap();
+        let mut header = BlockHeader {
+            version: 1,
+            prev_hash: Hash256([1; 32]),
+            merkle_root: Hash256([2; 32]),
+            timestamp: 1_800_000_000,
+            target: U256::low_bits(253),
+            nonce: 0,
+        };
+        let nonce = mine_header_randomx(&hasher, &mut header, 10_000).unwrap().unwrap();
+        assert_eq!(header.nonce, nonce);
+        // La vérification indépendante (fil partagé) confirme la preuve…
+        assert!(randomx_meets_target(&header, &key).unwrap());
+        // …et le nonce trouvé est le premier qui convient.
+        for n in 0..nonce {
+            let mut h = header;
+            h.nonce = n;
+            assert!(!randomx_meets_target(&h, &key).unwrap());
+        }
+        // Compteur d'essais, épuisement et arrêt.
+        header.target = U256::ZERO;
+        let stop = AtomicBool::new(false);
+        let hashes = AtomicU64::new(0);
+        assert_eq!(mine_randomx(&hasher, &header, 0, 2, 5, &stop, &hashes).unwrap(), MineResult::Exhausted);
+        assert_eq!(hashes.load(Ordering::Relaxed), 5);
+        stop.store(true, Ordering::Relaxed);
+        assert_eq!(mine_randomx(&hasher, &header, 0, 1, 5, &stop, &hashes).unwrap(), MineResult::Stopped);
+        assert_eq!(hashes.load(Ordering::Relaxed), 5);
     }
 }
