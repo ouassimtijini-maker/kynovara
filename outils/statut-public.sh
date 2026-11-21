@@ -45,6 +45,7 @@ jq -n --argjson i "$info" --argjson c "$points" --argjson b "$blocs" --argjson f
   genere: (now | floor), reseau: $i.network, version: $i.version,
   hauteur: $i.height, sommet: $i.tip, date_sommet: $i.tip_time,
   difficulte: $i.difficulty, pairs: $i.peers, deblocage: $i.transfers_unlock_height,
+  algorithme: ($i.pow.algorithm // "sha256d"), activation_randomx: ($i.pow.randomx_activation_height // null),
   fin_defi: $fin, point_controle: {hauteur: $c.latest.height, bloc: $c.latest.block},
   alerte: ($c.alert != null), blocs: $b
 }' > "$SITE/statut.json"

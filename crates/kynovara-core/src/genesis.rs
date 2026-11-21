@@ -55,6 +55,12 @@ mod tests {
             let g = genesis_block(p);
             assert_eq!(g.header.hash(), expected, "{net}");
             check_block_structure(&g, p).unwrap();
+            // Genèse en RandomX (réseau principal, une fois lancé) : sa preuve
+            // utilise la clé fixe de la genèse.
+            if p.pow_algorithm(0) == crate::params::PowAlgorithm::RandomX {
+                let key = crate::pow::GENESIS_RANDOMX_KEY;
+                assert!(crate::pow::randomx_meets_target(&g.header, &key).unwrap(), "{net}");
+            }
         }
     }
 

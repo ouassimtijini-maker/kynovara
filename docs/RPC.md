@@ -33,7 +33,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:19734/v1/info -Headers @{ Authorization 
 
 | Méthode | Chemin | Corps | Réponse |
 |---|---|---|---|
-| GET | `/v1/info` | — | réseau, hauteur, sommet, difficulté, pairs, mempool, minage, fin du rodage (`transfers_unlock_height`), point de contrôle |
+| GET | `/v1/info` | — | réseau, hauteur, sommet, difficulté (relative à la cible minimale de l'algorithme du sommet), preuve de travail (`pow.algorithm` du prochain bloc : `sha256d` ou `randomx` ; `pow.randomx_activation_height`), travail cumulé (`chain_work.randomx` et `chain_work.sha256d`, en hexadécimal : ils ne s'additionnent pas), pairs, mempool, minage, fin du rodage (`transfers_unlock_height`), point de contrôle |
 | GET | `/v1/block/<empreinte>` | — | bloc détaillé (en-tête, transactions) |
 | GET | `/v1/block-at/<hauteur>` | — | bloc de la chaîne active à cette hauteur |
 | GET | `/v1/tx/<txid>` | — | `status` = `mempool` ou `confirmed`, confirmations, transaction |
@@ -42,7 +42,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:19734/v1/info -Headers @{ Authorization 
 | GET | `/v1/mempool` | — | nombre, taille, txid |
 | GET | `/v1/peers` | — | pairs connectés |
 | POST | `/v1/peers` | `{"address": "IP:PORT"}` | ajoute un pair à joindre |
-| GET | `/v1/mining` | — | état du minage |
+| GET | `/v1/mining` | — | état du minage, dont `algorithm` (celui du prochain bloc) |
 | POST | `/v1/mining/start` | `{"address": "tkyn1…", "threads": 4}` | démarre le minage |
 | POST | `/v1/mining/stop` | `{}` | arrête le minage |
 | POST | `/v1/generate` | `{"count": 10, "address": "rkyn1…"}` | regtest : mine immédiatement |

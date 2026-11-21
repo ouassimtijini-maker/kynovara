@@ -9,13 +9,15 @@ Durée : environ 20 minutes, surtout des téléchargements.
 
 ## Étape 1 — Installer les outils de compilation C++ de Microsoft
 
-Rust a besoin de l'éditeur de liens de Microsoft (MSVC).
+Rust a besoin de l'éditeur de liens de Microsoft (MSVC), et la preuve de
+travail RandomX (une bibliothèque C++) du compilateur C++ et de **CMake**.
 
 1. Télécharge **Visual Studio Build Tools** sur le site de Microsoft
    (recherche « Build Tools for Visual Studio »).
 2. Dans l'installateur, coche **« Développement Desktop en C++ »**
    (« Desktop development with C++ »). Garde les options par défaut
-   (MSVC et le SDK Windows).
+   (MSVC, le SDK Windows et **« Outils CMake C++ pour Windows »** : vérifie
+   que cette case est bien cochée).
 3. Lance l'installation (quelques Go).
 
 > Variante : l'installateur de Rust (étape 2) propose aussi d'installer ces
@@ -64,6 +66,15 @@ rustup toolchain install
 
 ## Étape 5 — Compiler
 
+CMake est installé avec les Build Tools, mais PowerShell ne le trouve pas
+tout seul. Indique-lui où il est (une fois par fenêtre PowerShell) :
+
+```powershell
+$env:CMAKE = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+```
+
+Puis compile :
+
 ```powershell
 cargo build --release
 ```
@@ -106,6 +117,18 @@ Ensuite : `.\kynovarad.exe --help` et `.\kynovara-cli.exe --help`.
 
 **« link.exe not found » ou erreur d'éditeur de liens** : l'étape 1 n'est
 pas faite (ou PowerShell n'a pas été rouvert). Installe les Build Tools C++.
+
+**« is `cmake` not installed? » ou erreur de compilation de `randomx-rs`** :
+CMake est introuvable. Refais la commande `$env:CMAKE = …` de l'étape 5, et
+vérifie dans l'installateur des Build Tools (« Modifier ») que « Outils
+CMake C++ pour Windows » est coché.
+
+**« An Application Control policy has blocked this file » (os error 4551)** :
+Smart App Control (ou une stratégie de contrôle des applications) bloque les
+programmes que la compilation crée et lance elle-même. Ne désactive pas cette
+protection pour Kynovara : utilise plutôt Docker
+([REJOINDRE.md](REJOINDRE.md)), qui compile et fait tourner le nœud sous
+Linux.
 
 **« l'exécution de scripts est désactivée sur ce système »** : tu as lancé
 un script `.ps1`. Kynovara n'en a pas besoin ; lance directement les `.exe`.

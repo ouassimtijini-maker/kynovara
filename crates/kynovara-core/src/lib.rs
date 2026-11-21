@@ -7,8 +7,8 @@
 //! - les types de base (transactions, blocs, adresses, montants) et leur
 //!   encodage binaire strict ([`encode`]) ;
 //! - la cryptographie (hachage SHA-256, signatures Ed25519) ;
-//! - la preuve de travail (SHA-256 double) et l'ajustement de difficulté
-//!   (LWMA) ;
+//! - la preuve de travail (RandomX, et SHA-256 double pour le regtest et les
+//!   anciens blocs du testnet) et l'ajustement de difficulté (LWMA) ;
 //! - la politique monétaire (récompense de bloc et divisions par deux) ;
 //! - la validation complète des blocs et transactions ;
 //! - l'état de la chaîne (ensemble UTXO, réorganisations) ;
@@ -37,6 +37,7 @@ pub mod mempool;
 pub mod merkle;
 pub mod miner;
 pub mod params;
+pub mod pow;
 pub mod time;
 pub mod tx;
 pub mod u256;
@@ -48,6 +49,6 @@ pub use block::{Block, BlockHeader};
 pub use chain::Chain;
 pub use crypto::{KeyPair, PubKeyHash, PublicKey, Signature};
 pub use hash::Hash256;
-pub use params::{ConsensusParams, Network};
+pub use params::{ConsensusParams, Network, PowAlgorithm};
 pub use tx::{OutPoint, Transaction, TxIn, TxKind, TxOut};
 pub use u256::U256;

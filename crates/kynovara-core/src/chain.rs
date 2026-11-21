@@ -2,13 +2,17 @@
 //! ensemble UTXO et réorganisations.
 //!
 //! Règle de sélection (consensus) : la chaîne active est la chaîne **valide**
-//! qui a le plus grand travail cumulé. À travail égal, la première vue est
-//! conservée.
+//! qui a le plus grand travail cumulé ([`ChainWork`] : le travail RandomX
+//! d'abord, puis le travail SHA-256 double). À travail égal, la première vue
+//! est conservée.
 //!
 //! Déroulement de [`Chain::process_block`] :
-//! 1. vérifications sans contexte (preuve de travail, Merkle, format) ;
+//! 1. vérifications sans contexte (preuve de travail SHA-256 double, Merkle,
+//!    format) ;
 //! 2. si le parent est inconnu : le bloc est mis de côté (orphelin) ;
-//! 3. vérifications de l'en-tête dans son contexte (cible exacte, horodatage) ;
+//! 3. vérifications de l'en-tête dans son contexte (cible exacte, horodatage,
+//!    hauteur), puis, en dernier car c'est la plus coûteuse, la preuve de
+//!    travail RandomX, dont la clé dépend de la branche (voir `pow.rs`) ;
 //! 4. stockage et ajout à l'index ;
 //! 5. si une branche a désormais plus de travail que la chaîne active, on
 //!    s'y déplace (réorganisation). Chaque bloc y est validé complètement ;
@@ -35,7 +39,8 @@ use crate::block::{Block, BlockHeader};
 use crate::difficulty;
 use crate::genesis::genesis_block;
 use crate::hash::Hash256;
-use crate::params::{ConsensusParams, Network};
+use crate::params::{ConsensusParams, Network, PowAlgorithm};
+use crate::pow::{self, GENESIS_RANDOMX_KEY};
 use crate::u256::{U256, work_from_target};
 use crate::utxo::{BlockUndo, UtxoSet};
 use crate::validation::{BlockError, check_block_structure, connect_block, disconnect_block};
@@ -56,6 +61,9 @@ pub const DEFAULT_UNDO_DEPTH: u64 = 1_000;
 /// calcul. Seules les branches plus profondes restent en mémoire.
 pub const DEFAULT_SIDE_BRANCH_MARGIN: u64 = 1_000;
 const MAX_ORPHANS: usize = 64;
+/// Orphelins gardés au plus pour un même parent manquant (voir
+/// `OrphanPool::insert`).
+pub const MAX_ORPHANS_PER_PARENT: usize = 2;
 const MAX_ORPHAN_BYTES: usize = 16_000_000;
 /// Blocs de branches secondaires gardés en mémoire au plus (voir l'en-tête du
 /// module) : en nombre et en taille encodée.
@@ -102,6 +110,47 @@ pub enum BlockStatus {
     Invalid,
 }
 
+/// Travail cumulé d'une branche (règle de consensus).
+///
+/// Le travail d'un bloc est `2^256 / (cible + 1)`, le nombre moyen d'essais
+/// de son algorithme. Un essai SHA-256 et un essai RandomX n'ont rien de
+/// comparable (les machines SHA-256 en font des milliards par seconde, un
+/// processeur quelques dizaines en RandomX) : les deux travaux ne
+/// s'additionnent donc pas. Les branches se comparent d'abord à leur travail
+/// **RandomX**, puis, à égalité (en particulier avant l'activation de
+/// RandomX), à leur travail SHA-256. Sans cela, quelques blocs SHA-256 un
+/// peu plus difficiles minés juste avant l'activation pèseraient plus que des
+/// mois de blocs RandomX, et effaceraient la chaîne RandomX.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ChainWork {
+    /// Travail des blocs RandomX (comparé en premier : ordre des champs).
+    pub randomx: U256,
+    /// Travail des blocs en SHA-256 double.
+    pub sha256d: U256,
+}
+
+impl ChainWork {
+    /// Aucun travail.
+    pub const ZERO: ChainWork = ChainWork { randomx: U256::ZERO, sha256d: U256::ZERO };
+
+    /// Travail d'un bloc de cible `target` miné avec `algorithm`.
+    pub fn of_block(algorithm: PowAlgorithm, target: U256) -> Self {
+        let work = work_from_target(target);
+        match algorithm {
+            PowAlgorithm::RandomX => ChainWork { randomx: work, sha256d: U256::ZERO },
+            PowAlgorithm::Sha256d => ChainWork { randomx: U256::ZERO, sha256d: work },
+        }
+    }
+
+    /// Somme saturée.
+    pub fn saturating_add(self, other: ChainWork) -> Self {
+        ChainWork {
+            randomx: self.randomx.saturating_add(other.randomx),
+            sha256d: self.sha256d.saturating_add(other.sha256d),
+        }
+    }
+}
+
 /// Entrée de l'index des blocs.
 #[derive(Clone, Debug)]
 pub struct IndexEntry {
@@ -109,7 +158,7 @@ pub struct IndexEntry {
     pub header: BlockHeader,
     pub height: u64,
     /// Travail cumulé depuis la genèse (inclus).
-    pub chain_work: U256,
+    pub chain_work: ChainWork,
     pub status: BlockStatus,
     pub size: usize,
     pub tx_count: usize,
@@ -197,7 +246,9 @@ pub enum ProcessOutcome {
     Orphan { missing_parent: Hash256 },
     /// Bloc accepté dans l'index. `tip_change` décrit l'éventuel changement de
     /// chaîne active ; `invalid` liste les blocs trouvés invalides au moment
-    /// de les connecter (y compris, éventuellement, ce bloc-ci).
+    /// de les connecter (y compris, éventuellement, ce bloc-ci), ainsi que
+    /// les orphelins rattachés dont la preuve RandomX n'a pas pu être calculée
+    /// (`BlockError::PowUnavailable` : ni acceptés, ni marqués invalides).
     Accepted { tip_change: Option<TipChange>, invalid: Vec<(Hash256, BlockError)> },
 }
 
@@ -221,6 +272,14 @@ impl OrphanPool {
 
     fn insert(&mut self, hash: Hash256, block: Block) {
         if self.blocks.contains_key(&hash) {
+            return;
+        }
+        // Peu d'orphelins par parent manquant : à l'arrivée du parent, chacun
+        // est vérifié (preuve RandomX ≈ 15 ms). Sans cette limite, un pair
+        // ferait calculer 64 empreintes à chaque bloc qu'il voit arriver. Un
+        // orphelin écarté sera redemandé pendant la synchronisation.
+        if self.by_parent.get(&block.header.prev_hash).is_some_and(|siblings| siblings.len() >= MAX_ORPHANS_PER_PARENT)
+        {
             return;
         }
         let size = block.size();
@@ -284,6 +343,9 @@ pub struct Chain<S: BlockStore> {
     /// Chaîne gelée (alerte : points de contrôle contradictoires) : le sommet
     /// peut seulement être prolongé, jamais remplacé.
     frozen: bool,
+    /// Relecture de notre propre stockage (démarrage) : la preuve RandomX des
+    /// blocs, vérifiée avant leur écriture, n'est pas recalculée.
+    trusted_replay: bool,
     best_candidate: Hash256,
     next_seq: u64,
 }
@@ -314,7 +376,7 @@ impl<S: BlockStore> Chain<S> {
             hash,
             header: genesis.header,
             height: 0,
-            chain_work: work_from_target(genesis.header.target),
+            chain_work: ChainWork::of_block(params.pow_algorithm(0), genesis.header.target),
             status: BlockStatus::Valid,
             size: genesis.size(),
             tx_count: genesis.transactions.len(),
@@ -344,6 +406,7 @@ impl<S: BlockStore> Chain<S> {
             fatal: None,
             checkpoint: None,
             frozen: false,
+            trusted_replay: false,
             best_candidate: hash,
             next_seq: 1,
         })
@@ -600,6 +663,58 @@ impl<S: BlockStore> Chain<S> {
         Some(difficulty::next_target(self.params, parent.height, &self.difficulty_window(parent)))
     }
 
+    /// Clé RandomX d'un enfant du bloc `parent_hash` (None : l'enfant est en
+    /// SHA-256 double, ou le parent est inconnu).
+    pub fn randomx_key_for_child(&self, parent_hash: &Hash256) -> Option<Hash256> {
+        let parent = self.index.get(parent_hash)?;
+        self.randomx_key(parent, parent.height + 1)
+    }
+
+    /// Clé RandomX du bloc de hauteur `height` dont le parent est `parent` :
+    /// l'identifiant de l'ancêtre désigné par le calendrier des clés, sur la
+    /// branche de ce parent (deux branches peuvent avoir des clés différentes).
+    fn randomx_key(&self, parent: &IndexEntry, height: u64) -> Option<Hash256> {
+        let key_height = self.params.randomx_key_height(height)?;
+        if height == 0 {
+            return Some(GENESIS_RANDOMX_KEY);
+        }
+        self.ancestor(&parent.hash, key_height)
+    }
+
+    /// Un orphelin (parent inconnu) peut-il attendre son parent dans la réserve
+    /// (politique locale, pas une règle de consensus) ?
+    ///
+    /// Un orphelin en SHA-256 double a vu sa preuve vérifiée. Celle d'un
+    /// orphelin en RandomX ne peut pas l'être : sa clé dépend de sa branche,
+    /// encore inconnue. Il n'est gardé que si la clé de la hauteur qu'il
+    /// annonce est un bloc de notre chaîne active, c'est-à-dire s'il est
+    /// proche de notre sommet (cas normal : blocs arrivés dans le désordre).
+    /// Sinon (bloc très en avance, ou bloc d'avant l'activation qui se dit en
+    /// RandomX pour échapper à la preuve SHA-256), il n'est pas gardé : rien
+    /// n'est calculé, le pair n'est pas pénalisé, et le bloc sera redemandé à
+    /// son tour pendant la synchronisation.
+    fn may_keep_orphan(&self, block: &Block) -> bool {
+        let Some(height) = block.coinbase().and_then(|c| c.coinbase_height()) else {
+            return true;
+        };
+        match self.params.randomx_key_height(height) {
+            None => true,
+            Some(key_height) => height > 0 && key_height <= self.height(),
+        }
+    }
+
+    /// Comme [`Chain::process_block`], pour un bloc relu depuis **notre propre
+    /// stockage** au démarrage : sa preuve RandomX a été vérifiée avant qu'il
+    /// soit écrit et n'est pas recalculée (environ 15 ms par bloc, des minutes
+    /// pour une longue chaîne). Toutes les autres règles sont revérifiées. Ne
+    /// jamais l'utiliser pour un bloc reçu d'ailleurs.
+    pub fn process_stored_block(&mut self, block: Block, now: u64) -> Result<ProcessOutcome, BlockError> {
+        self.trusted_replay = true;
+        let result = self.process_block(block, now);
+        self.trusted_replay = false;
+        result
+    }
+
     /// Traite un bloc reçu (du réseau ou du mineur local).
     pub fn process_block(&mut self, block: Block, now: u64) -> Result<ProcessOutcome, BlockError> {
         if let Some(message) = &self.fatal {
@@ -618,24 +733,32 @@ impl<S: BlockStore> Chain<S> {
         check_block_structure(&block, self.params)?;
         if !self.index.contains_key(&block.header.prev_hash) {
             let missing_parent = block.header.prev_hash;
-            self.orphans.insert(hash, block);
+            if self.may_keep_orphan(&block) {
+                self.orphans.insert(hash, block);
+            }
             return Ok(ProcessOutcome::Orphan { missing_parent });
         }
         self.accept_with_parent(hash, block, now)?;
 
         // Les orphelins qui attendaient ce bloc peuvent maintenant être indexés.
+        // Ceux dont la preuve RandomX n'a pas pu être calculée sont signalés
+        // (le nœud doit le journaliser) ; les autres refus restent silencieux.
+        let mut unverified = Vec::new();
         let mut queue = vec![hash];
         while let Some(parent) = queue.pop() {
             for (child_hash, child) in self.orphans.take_children(&parent) {
-                if self.accept_with_parent(child_hash, child, now).is_ok() {
-                    queue.push(child_hash);
+                match self.accept_with_parent(child_hash, child, now) {
+                    Ok(()) => queue.push(child_hash),
+                    Err(e @ BlockError::PowUnavailable(_)) => unverified.push((child_hash, e)),
+                    Err(_) => {}
                 }
             }
         }
         self.enforce_parked_limits();
         self.adopt_release_checkpoint();
 
-        let (tip_change, invalid) = self.activate_best_chain();
+        let (tip_change, mut invalid) = self.activate_best_chain();
+        invalid.extend(unverified);
         Ok(ProcessOutcome::Accepted { tip_change, invalid })
     }
 
@@ -683,8 +806,22 @@ impl<S: BlockStore> Chain<S> {
         }
         // Période de rodage : refusé avant d'être stocké.
         crate::validation::check_transfers_allowed(&block, height, self.params)?;
+        // Preuve de travail RandomX, en dernier : c'est la vérification la plus
+        // coûteuse (environ 15 ms), et sa clé dépend de la branche du bloc.
+        if self.params.pow_algorithm(height) == PowAlgorithm::RandomX && !self.trusted_replay {
+            let key = self
+                .randomx_key(&parent, height)
+                .ok_or_else(|| BlockError::Storage(format!("clé RandomX du bloc {height} introuvable")))?;
+            match pow::randomx_meets_target(&block.header, &key) {
+                Ok(true) => {}
+                Ok(false) => return Err(BlockError::InsufficientWork),
+                Err(e) => return Err(BlockError::PowUnavailable(e.0)),
+            }
+        }
 
-        let chain_work = parent.chain_work.saturating_add(work_from_target(block.header.target));
+        let chain_work = parent
+            .chain_work
+            .saturating_add(ChainWork::of_block(self.params.pow_algorithm(height), block.header.target));
         let size = block.size();
         let entry = IndexEntry {
             hash,
@@ -714,7 +851,7 @@ impl<S: BlockStore> Chain<S> {
         }
         self.next_seq += 1;
         self.children.entry(parent.hash).or_default().push(hash);
-        let best_work = self.index.get(&self.best_candidate).map_or(U256::ZERO, |e| e.chain_work);
+        let best_work = self.index.get(&self.best_candidate).map_or(ChainWork::ZERO, |e| e.chain_work);
         self.index.insert(hash, entry);
         if chain_work > best_work && self.respects_checkpoint(&hash) {
             self.best_candidate = hash;
@@ -724,9 +861,9 @@ impl<S: BlockStore> Chain<S> {
 
     /// Travail cumulé de la chaîne active `side_branch_margin` blocs sous le
     /// sommet (le sommet lui-même avec une marge nulle).
-    fn disk_threshold(&self) -> U256 {
+    fn disk_threshold(&self) -> ChainWork {
         let height = self.height().saturating_sub(self.side_branch_margin);
-        self.block_hash_at(height).and_then(|h| self.index.get(&h)).map_or(U256::ZERO, |e| e.chain_work)
+        self.block_hash_at(height).and_then(|h| self.index.get(&h)).map_or(ChainWork::ZERO, |e| e.chain_work)
     }
 
     /// Se place sur la meilleure chaîne valide.
@@ -741,7 +878,7 @@ impl<S: BlockStore> Chain<S> {
             if target == tip {
                 break;
             }
-            let target_work = self.index.get(&target).map_or(U256::ZERO, |e| e.chain_work);
+            let target_work = self.index.get(&target).map_or(ChainWork::ZERO, |e| e.chain_work);
             // Un sommet qui ne respecte plus le point de contrôle est quitté
             // même pour une branche plus légère.
             if target_work <= self.tip().chain_work && self.respects_checkpoint(&tip) {

@@ -84,10 +84,15 @@ pub fn default_datadir() -> PathBuf {
     }
 }
 
+/// Nombre maximal de fils de minage par défaut. En RandomX, chaque fil occupe
+/// 256 Mio de mémoire : au-delà, il faut le demander avec `--threads`.
+pub const MAX_DEFAULT_THREADS: usize = 4;
+
 /// Nombre de fils de minage par défaut : tous les cœurs sauf un, pour que
-/// l'ordinateur reste utilisable.
+/// l'ordinateur reste utilisable, et au plus `MAX_DEFAULT_THREADS` (mémoire
+/// de RandomX).
 pub fn default_threads() -> usize {
-    std::thread::available_parallelism().map_or(1, |n| n.get().saturating_sub(1).max(1))
+    std::thread::available_parallelism().map_or(1, |n| n.get().saturating_sub(1).clamp(1, MAX_DEFAULT_THREADS))
 }
 
 /// Résultat de la lecture de la ligne de commande.
@@ -122,7 +127,8 @@ OPTIONS :
     --max-outbound <N>        connexions sortantes maximales (défaut : 8)
     --mine                    miner dès le démarrage (exige --mining-address)
     --mining-address <ADR>    adresse qui reçoit les récompenses de minage
-    --threads <N>             fils de minage (défaut : nombre de cœurs - 1)
+    --threads <N>             fils de minage (défaut : nombre de cœurs - 1, au plus 4 ;
+                              RandomX : 256 Mio de mémoire par fil)
     --log-level <NIVEAU>      error, warn, info (défaut) ou debug
     -h, --help                afficher cette aide
     -V, --version             afficher la version

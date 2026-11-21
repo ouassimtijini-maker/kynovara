@@ -145,7 +145,9 @@ bloc toutes les 2 minutes. C'est le terrain d'essai avant le réseau principal.
 ```
 
 Par défaut, le mineur utilise tous les cœurs du processeur **sauf un** (pour
-que ton PC reste utilisable). Pour choisir : ajoute `--threads 8`, par exemple.
+que ton PC reste utilisable), **4 au plus** : en RandomX (testnet à partir du
+bloc 16 000), chaque fil occupe 256 Mio de mémoire. Pour choisir : ajoute
+`--threads 8`, par exemple, si tu as la mémoire nécessaire (2 Gio pour 8 fils).
 
 Quand un bloc est trouvé, la fenêtre affiche `bloc trouvé à la hauteur …`.
 
