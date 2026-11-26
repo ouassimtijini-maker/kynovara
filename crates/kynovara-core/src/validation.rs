@@ -11,7 +11,7 @@ use crate::amount::{MAX_MONEY, format_amount};
 use crate::block::{BLOCK_VERSION, Block, MAX_BLOCK_SIZE};
 use crate::crypto::verify_signature;
 use crate::hash::Hash256;
-use crate::params::ConsensusParams;
+use crate::params::{ConsensusParams, PowAlgorithm};
 use crate::tx::{MAX_COINBASE_EXTRA, MAX_TX_SIZE, OutPoint, TX_VERSION, Transaction, TxKind, TxOut};
 use crate::u256::U256;
 use crate::utxo::{BlockUndo, UtxoEntry, UtxoSet};
@@ -124,6 +124,10 @@ pub enum BlockError {
     KnownInvalid,
     /// Erreur de stockage (disque).
     Storage(String),
+    /// La preuve RandomX n'a pas pu être calculée (mémoire insuffisante…) :
+    /// on ne sait pas si le bloc est valide, il n'est ni accepté ni rejeté
+    /// définitivement.
+    PowUnavailable(String),
     /// Le bloc est sur une branche qui ne contient pas le dernier point de
     /// contrôle signé (politique de choix de chaîne, voir `checkpoint.rs`).
     ConflictsWithCheckpoint {
@@ -147,6 +151,7 @@ impl BlockError {
             BlockError::BadMerkleRoot
                 | BlockError::TimestampTooFarInFuture { .. }
                 | BlockError::Storage(_)
+                | BlockError::PowUnavailable(_)
                 | BlockError::ConflictsWithCheckpoint { .. }
         )
     }
@@ -159,6 +164,7 @@ impl BlockError {
             self,
             BlockError::TimestampTooFarInFuture { .. }
                 | BlockError::Storage(_)
+                | BlockError::PowUnavailable(_)
                 | BlockError::ConflictsWithCheckpoint { .. }
         )
     }
@@ -206,6 +212,7 @@ impl fmt::Display for BlockError {
             ),
             BlockError::KnownInvalid => write!(f, "bloc déjà identifié comme invalide"),
             BlockError::Storage(e) => write!(f, "erreur de stockage : {e}"),
+            BlockError::PowUnavailable(e) => write!(f, "preuve de travail RandomX impossible à calculer : {e}"),
         }
     }
 }
@@ -259,7 +266,14 @@ pub fn check_tx_structure(tx: &Transaction) -> Result<(), TxError> {
 }
 
 /// Vérifications d'un bloc sans contexte, dans cet ordre :
-/// version, cible, preuve de travail, racine de Merkle, puis le reste.
+/// version, cible, preuve de travail SHA-256 double, racine de Merkle, puis
+/// le reste.
+///
+/// L'algorithme dépend de la hauteur, que le bloc annonce dans sa récompense
+/// (elle est vérifiée ensuite dans son contexte, voir `chain.rs`). Un bloc
+/// en SHA-256 double voit sa preuve vérifiée ici ; la preuve RandomX, elle,
+/// exige de connaître la branche (sa clé en dépend) et la plus coûteuse : elle
+/// est vérifiée dans `chain.rs`, après toutes les règles bon marché.
 ///
 /// La racine de Merkle est vérifiée avant toute règle portant sur le contenu :
 /// si elle ne correspond pas, les transactions ont pu être altérées en route et
@@ -269,10 +283,11 @@ pub fn check_block_structure(block: &Block, params: &ConsensusParams) -> Result<
     if header.version != BLOCK_VERSION {
         return Err(BlockError::UnsupportedVersion(header.version));
     }
-    if header.target.is_zero() || header.target > params.pow_limit {
+    let claimed_height = block.transactions.first().and_then(Transaction::coinbase_height).unwrap_or(0);
+    if header.target.is_zero() || header.target > params.pow_limit_at(claimed_height) {
         return Err(BlockError::TargetOutOfRange);
     }
-    if !header.meets_target() {
+    if params.pow_algorithm(claimed_height) == PowAlgorithm::Sha256d && !header.meets_target() {
         return Err(BlockError::InsufficientWork);
     }
     if block.compute_merkle_root() != header.merkle_root {

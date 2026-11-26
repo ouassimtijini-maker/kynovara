@@ -12,9 +12,18 @@
 //! - un temps de bloc est plafonné à `6 × T` : une longue pause ne fait pas
 //!   s'effondrer la difficulté ;
 //! - un horodatage qui recule est traité comme « +1 seconde » ;
-//! - la cible ne dépasse jamais `pow_limit` et ne vaut jamais 0.
+//! - la cible ne dépasse jamais la cible minimale de l'algorithme
+//!   (`pow_limit`) et ne vaut jamais 0.
 //!
 //! Avant que `N` blocs existent, la cible du bloc de genèse est utilisée.
+//!
+//! **Changement d'algorithme** (passage à RandomX à une hauteur donnée) : la
+//! puissance de calcul n'a plus rien à voir avec l'ancienne (SHA-256 :
+//! millions d'essais par seconde ; RandomX : dizaines par processeur).
+//! L'ajustement repart donc de zéro : les blocs RandomX utilisent la cible
+//! initiale prévue (`RandomXParams::initial_target`) tant que la fenêtre
+//! contient encore des blocs de l'ancien algorithme, puis LWMA ne voit plus
+//! que des blocs RandomX.
 
 use crate::params::ConsensusParams;
 use crate::u256::U256;
@@ -23,14 +32,22 @@ use crate::u256::U256;
 ///
 /// `parent_height` est la hauteur du dernier bloc. `window` contient
 /// `(horodatage, cible)` des `N + 1` derniers blocs (le plus ancien d'abord,
-/// le parent en dernier) ; il n'est lu que si `parent_height >= N`.
+/// le parent en dernier) ; il n'est lu que si la fenêtre ne contient que des
+/// blocs de l'algorithme du bloc suivant.
 pub fn next_target(params: &ConsensusParams, parent_height: u64, window: &[(u64, U256)]) -> U256 {
+    let height = parent_height.saturating_add(1);
+    let limit = params.pow_limit_at(height);
     if params.no_retarget {
-        return params.pow_limit;
+        return limit;
     }
+    // Premier bloc de l'algorithme en vigueur, et cible de départ.
+    let (era_start, initial) = match &params.randomx {
+        Some(rx) if height >= rx.activation_height => (rx.activation_height, rx.initial_target),
+        _ => (0, params.genesis.target),
+    };
     let n = params.lwma_window;
-    if parent_height < n || window.len() as u64 != n + 1 {
-        return params.genesis.target;
+    if parent_height < era_start.saturating_add(n) || window.len() as u64 != n + 1 {
+        return initial;
     }
     let t = params.target_spacing;
     // k = N(N+1)T/2 ramène la somme pondérée des temps à une moyenne.
@@ -47,21 +64,23 @@ pub fn next_target(params: &ConsensusParams, parent_height: u64, window: &[(u64,
         // Diviser avant d'additionner évite tout débordement.
         average_target = average_target.saturating_add(target.div_u64(n).div_u64(k));
     }
-    let next = average_target.checked_mul_u64(weighted_solvetimes).unwrap_or(params.pow_limit);
-    next.min(params.pow_limit).max(U256::ONE)
+    let next = average_target.checked_mul_u64(weighted_solvetimes).unwrap_or(limit);
+    next.min(limit).max(U256::ONE)
 }
 
-/// Difficulté lisible : rapport entre la cible minimale et la cible actuelle
-/// (1.0 = difficulté minimale). Pour l'affichage uniquement.
-pub fn difficulty(params: &ConsensusParams, target: &U256) -> f64 {
+/// Difficulté lisible d'un bloc de hauteur `height` : rapport entre la cible
+/// minimale de son algorithme et sa cible (1.0 = difficulté minimale). Pour
+/// l'affichage uniquement : une difficulté SHA-256 et une difficulté RandomX
+/// ne se comparent pas.
+pub fn difficulty(params: &ConsensusParams, height: u64, target: &U256) -> f64 {
     let t = target.to_f64();
-    if t <= 0.0 { f64::INFINITY } else { params.pow_limit.to_f64() / t }
+    if t <= 0.0 { f64::INFINITY } else { params.pow_limit_at(height).to_f64() / t }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::params::{REGTEST, TESTNET};
+    use crate::params::{MAINNET, REGTEST, TESTNET};
 
     fn window(times: &[u64], target: U256) -> Vec<(u64, U256)> {
         times.iter().map(|&t| (t, target)).collect()
@@ -141,5 +160,51 @@ mod tests {
     fn wrong_window_size_falls_back() {
         let p = &TESTNET;
         assert_eq!(next_target(p, 1000, &[(1, U256::ONE)]), p.genesis.target);
+    }
+
+    #[test]
+    fn retargeting_restarts_when_randomx_activates() {
+        let p = &TESTNET;
+        let rx = p.randomx.unwrap();
+        let (h, n) = (rx.activation_height, p.lwma_window);
+        // Dernier bloc SHA-256 : ajustement habituel, borné par l'ancienne limite.
+        let sha = window(&regular(n, p.target_spacing * 6), p.pow_limit);
+        assert_eq!(next_target(p, h - 2, &sha), p.pow_limit);
+        // Premiers blocs RandomX : cible initiale, quelle que soit la fenêtre
+        // (elle contient encore des blocs SHA-256, sans rapport avec RandomX).
+        let fast_sha = window(&regular(n, 1), U256::low_bits(200));
+        for parent in [h - 1, h, h + n - 1] {
+            assert_eq!(next_target(p, parent, &fast_sha), rx.initial_target, "parent {parent}");
+        }
+        // Fenêtre entièrement RandomX : LWMA reprend.
+        let on_time = window(&regular(n, p.target_spacing), rx.initial_target);
+        let r = ratio(next_target(p, h + n, &on_time), rx.initial_target);
+        assert!((r - 1.0).abs() < 1e-6, "{r}");
+        let fast = window(&regular(n, p.target_spacing / 2), rx.initial_target);
+        let r = ratio(next_target(p, h + n, &fast), rx.initial_target);
+        assert!((r - 0.5).abs() < 1e-6, "{r}");
+        // Bornée par la limite RandomX, pas par celle de SHA-256.
+        let slow = window(&regular(n, p.target_spacing * 6), rx.pow_limit);
+        assert_eq!(next_target(p, h + n, &slow), rx.pow_limit);
+        assert!(rx.pow_limit > p.pow_limit);
+    }
+
+    #[test]
+    fn mainnet_starts_with_randomx_from_genesis() {
+        let p = &MAINNET;
+        let rx = p.randomx.unwrap();
+        assert_eq!(next_target(p, 0, &[]), p.genesis.target);
+        assert_eq!(next_target(p, p.lwma_window - 1, &[]), rx.initial_target);
+        let slow = window(&regular(p.lwma_window, p.target_spacing * 6), rx.pow_limit);
+        assert_eq!(next_target(p, 10_000, &slow), rx.pow_limit);
+    }
+
+    #[test]
+    fn displayed_difficulty_uses_the_algorithm_of_the_block() {
+        let p = &TESTNET;
+        let rx = p.randomx.unwrap();
+        assert_eq!(difficulty(p, 1, &p.pow_limit), 1.0);
+        assert_eq!(difficulty(p, rx.activation_height, &rx.pow_limit), 1.0);
+        assert!(difficulty(p, rx.activation_height, &rx.initial_target) > 1.0);
     }
 }

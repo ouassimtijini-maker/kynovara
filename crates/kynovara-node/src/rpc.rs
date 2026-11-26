@@ -183,9 +183,18 @@ fn info(node: &Node) -> Value {
         "tip": tip.hash.to_hex(),
         "tip_time": tip.header.timestamp,
         "target": tip.header.target.to_hex(),
-        "difficulty": difficulty(params, &tip.header.target),
+        "difficulty": difficulty(params, tip.height, &tip.header.target),
         "next_target": st.chain.next_target_after(&tip.hash).map(|t| t.to_hex()),
-        "chain_work": tip.chain_work.to_hex(),
+        "pow": {
+            // Algorithme du prochain bloc.
+            "algorithm": params.pow_algorithm(tip.height + 1).name(),
+            "randomx_activation_height": params.randomx.map(|rx| rx.activation_height),
+        },
+        // Travaux RandomX et SHA-256 séparés : ils ne s'additionnent pas.
+        "chain_work": {
+            "randomx": tip.chain_work.randomx.to_hex(),
+            "sha256d": tip.chain_work.sha256d.to_hex(),
+        },
         "utxo_count": st.chain.utxo().len(),
         "supply": format_amount(u64::try_from(st.chain.utxo().total_value()).unwrap_or(u64::MAX)),
         "mempool": { "count": st.mempool.len(), "bytes": st.mempool.total_bytes() },
@@ -471,8 +480,10 @@ fn add_peer(node: &Node, body: &Value) -> Result<Response, Response> {
 
 fn mining_status(node: &Node) -> Value {
     let miner = &node.inner.miner;
+    let next_height = node.state().chain.height() + 1;
     json!({
         "active": miner.running.load(Ordering::Relaxed),
+        "algorithm": node.params().pow_algorithm(next_height).name(),
         "threads": miner.threads(),
         "address": miner.address().map(|a| a.encode()),
         "hashrate": miner.hashrate(),

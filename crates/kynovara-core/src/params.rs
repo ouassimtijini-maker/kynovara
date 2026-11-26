@@ -77,6 +77,53 @@ pub struct GenesisParams {
     pub hash: Option<Hash256>,
 }
 
+/// Algorithme de preuve de travail d'un bloc.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum PowAlgorithm {
+    /// Double SHA-256 de l'en-tête, comme Bitcoin : regtest, et testnet avant
+    /// l'activation de RandomX.
+    Sha256d,
+    /// RandomX, l'algorithme de Monero, conçu pour les processeurs ordinaires
+    /// (voir `pow.rs`).
+    RandomX,
+}
+
+impl PowAlgorithm {
+    /// Nom court (« sha256d », « randomx »).
+    pub fn name(self) -> &'static str {
+        match self {
+            PowAlgorithm::Sha256d => "sha256d",
+            PowAlgorithm::RandomX => "randomx",
+        }
+    }
+}
+
+impl fmt::Display for PowAlgorithm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// Paramètres de la preuve de travail RandomX (règles de consensus).
+#[derive(Debug, Clone, Copy)]
+pub struct RandomXParams {
+    /// Premier bloc dont la preuve de travail est RandomX (0 : dès la genèse).
+    /// Les blocs plus bas restent en SHA-256 double.
+    pub activation_height: u64,
+    /// Cible la plus facile autorisée pour un bloc RandomX.
+    pub pow_limit: U256,
+    /// Cible des premiers blocs RandomX : l'ajustement de difficulté repart de
+    /// zéro à l'activation, et cette cible sert tant que la fenêtre LWMA
+    /// contient encore des blocs de l'ancien algorithme. Égale à la cible de la
+    /// genèse quand RandomX commence dès la genèse.
+    pub initial_target: U256,
+    /// La clé RandomX change tous les `key_interval` blocs…
+    pub key_interval: u64,
+    /// …et vient d'un bloc situé au moins `key_lag + 1` blocs plus bas : les
+    /// mineurs connaissent la clé suivante avant qu'elle serve.
+    pub key_lag: u64,
+}
+
 /// Paramètres de consensus.
 #[derive(Debug, Clone)]
 pub struct ConsensusParams {
@@ -87,8 +134,11 @@ pub struct ConsensusParams {
     pub magic: [u8; 4],
     pub default_p2p_port: u16,
     pub default_rpc_port: u16,
-    /// Cible la plus facile autorisée (difficulté minimale).
+    /// Cible la plus facile autorisée (difficulté minimale) pour un bloc en
+    /// SHA-256 double. Celle des blocs RandomX est dans `randomx`.
     pub pow_limit: U256,
+    /// Preuve de travail RandomX (None : SHA-256 double pour tous les blocs).
+    pub randomx: Option<RandomXParams>,
     pub genesis: GenesisParams,
     /// Temps visé entre deux blocs (secondes).
     pub target_spacing: u64,
@@ -148,6 +198,39 @@ impl ConsensusParams {
         total.saturating_sub(self.initial_subsidy)
     }
 
+    /// Algorithme de preuve de travail exigé pour un bloc de cette hauteur
+    /// (règle de consensus).
+    pub fn pow_algorithm(&self, height: u64) -> PowAlgorithm {
+        match &self.randomx {
+            Some(rx) if height >= rx.activation_height => PowAlgorithm::RandomX,
+            _ => PowAlgorithm::Sha256d,
+        }
+    }
+
+    /// Cible la plus facile autorisée pour un bloc de cette hauteur (règle de
+    /// consensus).
+    pub fn pow_limit_at(&self, height: u64) -> U256 {
+        match &self.randomx {
+            Some(rx) if height >= rx.activation_height => rx.pow_limit,
+            _ => self.pow_limit,
+        }
+    }
+
+    /// Hauteur du bloc dont l'empreinte sert de clé RandomX au bloc `height`
+    /// (None : bloc en SHA-256 double). Même calendrier que Monero : la clé
+    /// change tous les `key_interval` blocs, `key_lag` blocs après le bloc qui
+    /// la fournit ; avant le premier changement, c'est la genèse (hauteur 0).
+    /// Pour tout bloc autre que la genèse, la clé vient d'un ancêtre strict.
+    pub fn randomx_key_height(&self, height: u64) -> Option<u64> {
+        let rx = self.randomx.as_ref().filter(|rx| height >= rx.activation_height)?;
+        let interval = rx.key_interval.max(1);
+        if height <= interval.saturating_add(rx.key_lag) {
+            Some(0)
+        } else {
+            Some((height - rx.key_lag - 1) / interval * interval)
+        }
+    }
+
     /// Réseau de test ou de développement (pièces sans valeur) ?
     pub fn is_test_network(&self) -> bool {
         self.network != Network::Mainnet
@@ -178,10 +261,23 @@ pub static MAINNET: ConsensusParams = ConsensusParams {
     magic: [0x4b, 0x59, 0x4e, 0x4d],
     default_p2p_port: 9733,
     default_rpc_port: 9734,
-    pow_limit: U256::low_bits(232),
+    // Inutilisée : tous les blocs du réseau principal sont en RandomX.
+    pow_limit: U256::low_bits(248),
+    // RandomX dès la genèse (décidé le 20 novembre 2026, DECISIONS.md § 4).
+    // Mêmes intervalles de clé que Monero, qui a aussi des blocs de 2 minutes.
+    // Cibles provisoires, à ajuster lors du lancement selon la puissance
+    // attendue (DECISIONS.md § 8) : 2^240 demande environ 65 000 essais par
+    // bloc, soit 2 minutes pour une dizaine de processeurs.
+    randomx: Some(RandomXParams {
+        activation_height: 0,
+        pow_limit: U256::low_bits(248),
+        initial_target: U256::low_bits(240),
+        key_interval: 2048,
+        key_lag: 64,
+    }),
     genesis: GenesisParams {
         timestamp: 0,
-        target: U256::low_bits(220),
+        target: U256::low_bits(240),
         nonce: 0,
         message: "Kynovara mainnet - a definir lors du lancement",
         hash: None,
@@ -213,6 +309,22 @@ pub static TESTNET: ConsensusParams = ConsensusParams {
     default_p2p_port: 19733,
     default_rpc_port: 19734,
     pow_limit: U256::low_bits(240),
+    // Mise à jour du réseau : SHA-256 double jusqu'au bloc 20 999, RandomX à
+    // partir du bloc 21 000 (vers le 2 décembre 2026). Prévue d'abord au bloc
+    // 16 000 (décidée le 20 novembre 2026, hauteur alors 12 920) : ce bloc est
+    // passé vers le 25 novembre alors que tous les nœuds étaient encore en
+    // 0.3.2, donc sans scission ; repoussée le 26 novembre, hauteur alors
+    // 16 838. Un nœud 0.3.x refuse les blocs RandomX et reste sur l'ancienne
+    // chaîne : il faut passer en 0.4.0 avant.
+    // Cible initiale : 2^242, environ 16 000 essais par bloc, soit à peu près
+    // 2 minutes pour deux fils en mode léger (~60 essais/s chacun).
+    randomx: Some(RandomXParams {
+        activation_height: 21_000,
+        pow_limit: U256::low_bits(248),
+        initial_target: U256::low_bits(242),
+        key_interval: 2048,
+        key_lag: 64,
+    }),
     genesis: GenesisParams {
         timestamp: 1_793_275_200,
         target: U256::low_bits(226),
@@ -263,6 +375,9 @@ pub static REGTEST: ConsensusParams = ConsensusParams {
     default_p2p_port: 29733,
     default_rpc_port: 29734,
     pow_limit: U256::low_bits(255),
+    // SHA-256 double : les blocs se minent instantanément (tests). RandomX est
+    // testé avec des paramètres dédiés (tests/randomx.rs).
+    randomx: None,
     genesis: GenesisParams {
         timestamp: 1_767_225_600,
         target: U256::low_bits(255),
@@ -350,7 +465,69 @@ mod tests {
             if !p.no_retarget {
                 assert!(p.lwma_window > 0, "{net}");
             }
-            assert!(!p.pow_limit.is_zero() && p.genesis.target <= p.pow_limit, "{net}");
+            assert!(!p.pow_limit.is_zero() && p.genesis.target <= p.pow_limit_at(0), "{net}");
+        }
+    }
+
+    #[test]
+    fn randomx_parameters_are_usable() {
+        for net in Network::ALL {
+            let p = net.params();
+            let Some(rx) = p.randomx else { continue };
+            assert!(rx.key_interval > 0, "{net}");
+            assert!(!rx.pow_limit.is_zero() && rx.initial_target <= rx.pow_limit, "{net}");
+            assert!(!rx.initial_target.is_zero(), "{net}");
+            if rx.activation_height == 0 {
+                // L'ajustement part de la genèse, comme avant RandomX.
+                assert_eq!(rx.initial_target, p.genesis.target, "{net}");
+            }
+        }
+        // Réseau principal : RandomX dès la genèse ; regtest : jamais.
+        assert_eq!(MAINNET.pow_algorithm(0), PowAlgorithm::RandomX);
+        assert!((0..100_000).all(|h| REGTEST.pow_algorithm(h) == PowAlgorithm::Sha256d));
+        assert_eq!(REGTEST.randomx_key_height(1), None);
+    }
+
+    #[test]
+    fn testnet_switches_to_randomx_at_activation() {
+        let rx = TESTNET.randomx.expect("RandomX prévu sur le testnet");
+        let h = rx.activation_height;
+        // Après les envois et le dernier point inscrit dans la version.
+        assert!(h > TESTNET.transfers_unlock_height);
+        assert!(TESTNET.release_checkpoints.iter().all(|(cp, _)| *cp < h));
+        // Le testnet a dépassé le bloc 16 000 en SHA-256 (tous les nœuds en
+        // 0.3.2) et comptait 16 838 blocs le 26 novembre 2026 : une activation
+        // à une hauteur déjà atteinte couperait les nœuds 0.4.0 de la chaîne.
+        assert!(h > 16_838);
+        assert_eq!(TESTNET.pow_algorithm(h - 1), PowAlgorithm::Sha256d);
+        assert_eq!(TESTNET.pow_algorithm(h), PowAlgorithm::RandomX);
+        assert_eq!(TESTNET.pow_limit_at(h - 1), TESTNET.pow_limit);
+        assert_eq!(TESTNET.pow_limit_at(h), rx.pow_limit);
+        assert_eq!(TESTNET.randomx_key_height(h - 1), None);
+        // Bloc 21 000 : clé du bloc 20 480 (10 × 2 048), jusqu'au bloc 22 592
+        // (exemple de SPECIFICATION.md, § 6 bis).
+        assert_eq!(TESTNET.randomx_key_height(21_000), Some(20_480));
+        assert_eq!(TESTNET.randomx_key_height(22_592), Some(20_480));
+        assert_eq!(TESTNET.randomx_key_height(22_593), Some(22_528));
+    }
+
+    #[test]
+    fn randomx_key_schedule_follows_monero() {
+        let p = &MAINNET;
+        // Avant le premier changement (2 048 + 64), la clé vient de la genèse.
+        assert_eq!(p.randomx_key_height(0), Some(0));
+        assert_eq!(p.randomx_key_height(1), Some(0));
+        assert_eq!(p.randomx_key_height(2_112), Some(0));
+        // Puis le bloc 2 048 sert du bloc 2 113 au bloc 4 160, etc.
+        assert_eq!(p.randomx_key_height(2_113), Some(2_048));
+        assert_eq!(p.randomx_key_height(4_160), Some(2_048));
+        assert_eq!(p.randomx_key_height(4_161), Some(4_096));
+        for height in [1, 2, 63, 64, 65, 2_047, 2_048, 2_112, 2_113, 9_999, 1_000_000, u64::MAX] {
+            let key = p.randomx_key_height(height).expect("RandomX");
+            // Toujours un ancêtre strict, multiple de l'intervalle, et assez
+            // ancien pour être connu d'avance.
+            assert!(key < height && key.is_multiple_of(2_048), "{height} -> {key}");
+            assert!(key == 0 || height - key > 64, "{height} -> {key}");
         }
     }
 

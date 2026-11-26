@@ -105,7 +105,7 @@ footer { padding-block: 1.5rem 2.5rem; color: var(--sourdine); font-size: 0.92re
     <div class="chiffre"><span class="sur">Fin du défi</span><span class="val" id="fin">…</span><span class="det" id="fin-det">&nbsp;</span></div>
     <div class="chiffre"><span class="sur">Historique signé</span><span class="val" id="signe">…</span><span class="det">jusqu'à ce bloc, par le fondateur</span></div>
     <div class="chiffre"><span class="sur">Nœuds reliés</span><span class="val" id="noeuds">…</span><span class="det">au serveur public</span></div>
-    <div class="chiffre"><span class="sur">Difficulté</span><span class="val" id="difficulte">…</span><span class="det">ajustée à chaque bloc</span></div>
+    <div class="chiffre"><span class="sur">Difficulté</span><span class="val" id="difficulte">…</span><span class="det" id="difficulte-det">ajustée à chaque bloc</span></div>
   </div>
 
   <section aria-labelledby="h-chaine">
@@ -187,6 +187,11 @@ footer { padding-block: 1.5rem 2.5rem; color: var(--sourdine); font-size: 0.92re
     texte("signe", s.point_controle && s.point_controle.hauteur != null ? nombre(s.point_controle.hauteur) : "—");
     texte("noeuds", s.pairs ? nombre(s.pairs.inbound) : "—");
     texte("difficulte", Number(s.difficulte).toLocaleString("fr-CA", { maximumFractionDigits: 0 }));
+    if (s.algorithme === "randomx") {
+      texte("difficulte-det", "RandomX, ajustée à chaque bloc");
+    } else if (s.activation_randomx != null) {
+      texte("difficulte-det", "SHA-256 · RandomX au bloc " + nombre(s.activation_randomx));
+    }
     $("alerte").style.display = s.alerte ? "block" : "none";
 
     var chaine = $("chaine");

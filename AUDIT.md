@@ -1,4 +1,4 @@
-# Rapport d'audit — Kynovara 0.3.2
+# Rapport d'audit — Kynovara 0.4.0
 
 **Date** : 28 octobre 2026
 **Périmètre** : tout le dépôt — `kynovara-core` (règles de consensus),
@@ -25,20 +25,27 @@ renommage.
 |---|---|
 | Développement local, `regtest` | **Prêt.** |
 | Réseau de test (`testnet`) entre tes machines ou avec des volontaires | **Prêt**, avec les limites connues ci-dessous. |
-| Réseau principal (`mainnet`) avec de la vraie valeur | **Pas prêt.** Deux points bloquants (R-01, R-02), les décisions de `docs/DECISIONS.md`, un audit externe et la phase juridique de `docs/LANCEMENT.md`. Le nœud refuse d'ailleurs de démarrer sur le mainnet tant que sa genèse n'existe pas. |
+| Réseau principal (`mainnet`) avec de la vraie valeur | **Pas prêt.** Un point bloquant (R-02) ; R-01 est traité par RandomX en 0.4.0 (relu de façon indépendante, constats corrigés) mais doit encore être éprouvé sur le testnet (activation au bloc 21 000) ; restent les décisions de `docs/DECISIONS.md`, un audit externe et la phase juridique de `docs/LANCEMENT.md`. Le nœud refuse d'ailleurs de démarrer sur le mainnet tant que sa genèse n'existe pas. |
 
 Aucun constat ouvert ne permet aujourd'hui de **créer de la monnaie**, de
 **dépenser les pièces d'autrui** ou de faire accepter **deux dépenses de la
 même pièce** dans une chaîne. La double dépense par réécriture de
-l'historique (attaque des 51 %) reste en revanche le risque R-01.
+l'historique (attaque des 51 %) reste possible pour qui réunit la majorité de
+la puissance de calcul (R-01) : depuis la 0.4.0, c'est de la puissance
+**RandomX** (des processeurs), et non plus la puissance SHA-256 des machines
+spécialisées de Bitcoin, louable à l'heure pour presque rien.
 
 Bilan : **41 constats corrigés**, dont 7 de gravité élevée (4 trouvés par
 l'auteur, 3 par le relecteur indépendant), chacun avec un test de
 non-régression quand c'est possible ; le relecteur a aussi jugé insuffisante
 une correction de la première passe (carnet d'adresses, M-4), reprise depuis.
-**12 limites connues** sont documentées ci-dessous. La version 0.2.0 ajoute
+**17 limites connues** sont documentées ci-dessous. La version 0.2.0 ajoute
 les **points de contrôle signés** (section dédiée ci-dessous) : 6 problèmes
-trouvés en les auditant, tous corrigés avant livraison.
+trouvés en les auditant, tous corrigés avant livraison. La version 0.4.0
+remplace la preuve de travail SHA-256 par **RandomX** (section dédiée
+ci-dessous) : 3 constats de la relecture de l'auteur et 8 de la relecture
+indépendante, dont un de gravité élevée (V-1), tous corrigés sauf V-7
+(documenté, R-17).
 
 ---
 
@@ -61,9 +68,10 @@ trouvés en les auditant, tous corrigés avant livraison.
    interdit hors des tests, débordements arithmétiques contrôlés même en
    version optimisée (`overflow-checks = true`) ; le relecteur a vérifié
    qu'aucun calcul contrôlé par un pair ou par le RPC ne peut déborder.
-4. **Tests** (190, tous verts en mode normal et optimisé) :
+4. **Tests** (223 depuis la 0.4.0, tous verts en mode optimisé sous Linux) :
    - vecteurs officiels : RFC 8032 (Ed25519), BIP-39 (8 vecteurs), SLIP-0010,
-     BIP-350 (valides et invalides), FIPS 180 (SHA-256) ;
+     BIP-350 (valides et invalides), FIPS 180 (SHA-256), RandomX (4 vecteurs
+     du dépôt de référence tevador/RandomX) ;
    - règles de consensus une par une, réorganisations (y compris au-delà des
      données d'annulation), branches invalides, orphelins, fin de l'émission,
      test aléatoire et test différentiel ;
@@ -98,6 +106,113 @@ trouvés en les auditant, tous corrigés avant livraison.
 Échelle de gravité : **Critique** (perte de fonds ou scission du réseau,
 exploitable), **Élevée** (déni de service grave, perte de données, ou piège
 latent menant à une perte de fonds), **Moyenne**, **Faible**, **Info**.
+
+---
+
+## Version 0.4.0 : preuve de travail RandomX
+
+**Changement de règle de consensus** (bifurcation programmée du testnet).
+
+- **Testnet** : SHA-256 double jusqu'au bloc 20 999, **RandomX à partir du
+  bloc 21 000** (vers le 2 décembre 2026). L'ajustement de difficulté repart
+  de zéro : cible 2²⁴² − 1 pour les blocs 21 000 à 21 060, puis LWMA sur des
+  blocs RandomX uniquement. Un nœud 0.3.x refuse les blocs RandomX et reste
+  sur l'ancienne chaîne : **tous les nœuds doivent passer en 0.4.0 avant le
+  bloc 21 000**, à commencer par le serveur d'amorçage et le nœud signataire.
+  Activation prévue d'abord au bloc 16 000 : ce bloc est passé vers le
+  25 novembre alors qu'aucun nœud n'était en 0.4.0, donc sans scission (la
+  chaîne a continué en SHA-256) ; repoussée le 26 novembre, hauteur alors
+  16 838.
+- **Mainnet** : RandomX dès la genèse (cibles provisoires, à fixer au
+  lancement). **Regtest** : SHA-256 double (blocs instantanés pour les tests).
+- **Clé RandomX** : calendrier de Monero (changement tous les 2 048 blocs,
+  64 blocs après le bloc qui la fournit), prise **sur la branche du bloc**.
+- **Mise en œuvre** : `randomx-rs` 1.6.0 (projet Tari), liaison vers
+  l'implémentation C++ de référence tevador/RandomX, épinglée à la version
+  exacte (règle de consensus) ; **mode léger** (cache de 256 Mio par clé,
+  ≈ 15 ms par empreinte, ≈ 60 essais/s par fil, mesurés sous Docker) ; un
+  fil dédié vérifie les blocs et garde les caches des deux dernières clés ;
+  chaque fil de minage a son propre cache, gardé d'un bloc à l'autre (le
+  mineur a désormais des fils permanents).
+- Au démarrage, les blocs relus depuis le disque du nœud ne sont pas
+  revérifiés en RandomX (ils l'ont été avant d'être écrits) ; toutes les
+  autres règles le sont.
+
+**Nature de la vérification**, le 21 novembre 2026, en trois temps, comme
+pour les versions précédentes :
+1. relecture par l'auteur du code (Claude), avec ses tests ;
+2. **relecture structurée** par la même instance (six angles : lecture ligne
+   à ligne, comportements retirés, appelants, pièges du langage, enveloppes,
+   conventions) : 6 constats, dont 3 corrigés (RX-1 à RX-3) ;
+3. **relecture indépendante** par une autre instance de Claude, lancée sans
+   accès aux raisonnements de l'auteur, qui a écrit et exécuté ses propres
+   preuves de concept (dans Docker, et sous un profil seccomp pour V-2) :
+   8 constats (V-1 à V-8), dont un de gravité élevée que les deux premières
+   passes avaient manqué. Tous sont corrigés sauf V-7 (documenté, R-17), et
+   ses preuves de concept font désormais partie de la suite de tests
+   (`tests/relecture_*.rs`), retournées en tests de non-régression.
+
+33 nouveaux tests en tout (223). Essai réel : la 0.4.0 a relu une copie de la
+chaîne du testnet (13 031 blocs, sans réseau) avec les nouvelles règles, sans
+refuser aucun bloc (version antérieure à la correction V-1, sans effet sur ces
+blocs). Ces blocs étant tous antérieurs à l'activation, cet essai
+vérifie la compatibilité avec la chaîne existante, **pas** le code RandomX,
+qui ne sera éprouvé en réel qu'à partir du bloc 21 000. Compilée et testée sous Linux
+(Docker), puis par l'intégration continue sous Linux et Windows ; sur le PC du
+fondateur, Smart App Control a bloqué le
+script de compilation de `randomx-rs` (voir R-08). Chaîne
+d'approvisionnement : `cargo audit` du 21 novembre 2026 (1 555 avis RustSec,
+68 dépendances, dont `randomx-rs` 1.6.0 et ses dépendances `bitflags`,
+`libc`, `thiserror` et `cmake`) : **aucun avis**.
+
+Points examinés :
+
+| Question | Réponse | Test |
+|---|---|---|
+| Un bloc peut-il échapper à la preuve en mentant sur sa hauteur ? | Non : sans contexte, l'algorithme est choisi d'après la hauteur annoncée par la récompense ; en contexte, cette hauteur doit être la vraie, et la preuve RandomX est calculée d'après la vraie hauteur. | `structure_check_uses_the_claimed_height` |
+| Une preuve SHA-256 suffit-elle encore après l'activation ? | Non. | `blocks_switch_to_randomx_at_the_activation_height` |
+| Une preuve calculée avec la clé d'une autre branche est-elle acceptée ? | Non : la clé est l'ancêtre du bloc sur sa propre branche ; une branche concurrente qui la dépasse est adoptée normalement. | `randomx_key_rotates_and_belongs_to_the_branch` |
+| Une erreur interne de RandomX (mémoire) peut-elle faire rejeter un bloc valide ou bannir un pair honnête ? | Non : erreur `PowUnavailable`, ni définitive ni imputée au pair ; le bloc n'est pas indexé et pourra être revu. | revue |
+| La relecture du disque sans RandomX peut-elle faire accepter un bloc non vérifié ? | Seuls nos propres fichiers sont relus ainsi. Un nœud 0.3.x qui aurait continué après l'activation aurait écrit des blocs SHA-256 dont la cible ne correspond pas aux nouvelles règles : refusés à la relecture. | `stored_blocks_skip_only_the_randomx_check` |
+| Un orphelin RandomX est-il vérifié ? | Oui, quand son parent arrive (avant, sa clé n'est pas connue). | `randomx_orphans_are_checked_once_their_parent_arrives` |
+| La bibliothèque calcule-t-elle le vrai RandomX ? | Oui : 4 vecteurs officiels. | `official_test_vectors` |
+| Du code `unsafe` a-t-il été ajouté ? | Non : les objets de `randomx-rs` ne peuvent pas changer de fil ; chaque fil possède les siens. | compilation (`unsafe_code = "forbid"`) |
+
+Constats de la relecture structurée :
+
+| ID | Gravité | Constat | Correction | Test |
+|---|---|---|---|---|
+| RX-1 | Moyenne | Un orphelin RandomX (parent inconnu) entrait dans la réserve sans aucune preuve ; un bloc d'avant l'activation pouvait même annoncer une hauteur RandomX pour échapper à la preuve SHA-256. N'importe qui remplissait la réserve gratuitement et en chassait les vrais orphelins. | Un orphelin RandomX n'est gardé que si la clé de la hauteur qu'il annonce est un bloc de la chaîne active (bloc proche du sommet) ; sinon il est ignoré, sans calcul ni pénalité, et sera redemandé pendant la synchronisation. Un orphelin proche reste gratuit à fabriquer, comme l'était presque un orphelin SHA-256 avant. | `randomx_orphans_far_ahead_are_not_kept` |
+| RX-2 | Moyenne | RandomX indisponible (mémoire) : les refus n'étaient journalisés qu'au niveau « debug », le nœud cessait de suivre la chaîne sans rien dire. | Journalisés en erreur. | revue |
+| RX-3 | Moyenne | Nombre de fils de minage par défaut = cœurs − 1, soit 256 Mio chacun en RandomX : sur une machine à beaucoup de cœurs et peu de mémoire, mémoire épuisée à l'activation. Idem pour l'outil de genèse (tous les cœurs). | Au plus 4 fils par défaut (nœud et genèse) ; la mémoire prévue est annoncée au démarrage du minage. | revue |
+
+Non corrigés : le calcul RandomX sous le verrou principal (R-14), le pointeur
+de machine virtuelle non vérifié par `randomx-rs` (R-13), et l'absence de test
+de bout en bout du mineur du nœud en RandomX (ses fils de calcul sont testés
+seuls).
+
+Constats de la relecture indépendante :
+
+| ID | Gravité | Constat | Correction | Test |
+|---|---|---|---|---|
+| V-1 | **Élevée** | **Le travail SHA-256 écrasait le travail RandomX.** Les deux travaux s'additionnaient : un bloc SHA-256 du testnet (≈ 2³⁰ essais) pesait autant que ≈ 65 000 blocs RandomX (≈ 2¹⁴). Une branche partant d'avant l'activation, avec quelques blocs SHA-256 datés à une seconde d'intervalle (LWMA relève alors leur difficulté), dépassait toute la chaîne RandomX honnête : en 2 blocs, ≈ 2 200 blocs RandomX de surplus ; en 10, ≈ 120 000 (5,5 mois), pour quelques secondes de carte graphique. Seul un point de contrôle signé sur un bloc RandomX l'empêchait : signataire éteint au moment de l'activation, délégation expirée ou alerte suffisaient à ouvrir la fenêtre, puis double dépense. | Travail cumulé à deux composantes (`ChainWork`) : les branches se comparent d'abord au travail RandomX, puis au travail SHA-256 (spécification, § 8). Identique aux règles de la 0.3.x avant l'activation (aucun travail RandomX de part et d'autre). | `relecture_deux_blocs_sha_d_avant_l_activation_n_effacent_plus_les_blocs_randomx`, `relecture_seul_un_point_de_controle_randomx_empeche_cette_reecriture`, `relecture_echelle_du_testnet` |
+| V-2 | Moyenne | **Plantage quand le système refuse la mémoire exécutable** (systemd `MemoryDenyWriteExecute=yes`, SELinux `deny_execmem`, PaX) : la version de RandomX livrée avec `randomx-rs` ignore l'échec de `mprotect`, la création du cache réussit quand même, et le repli sur l'interpréteur ne se déclenchait jamais : SIGSEGV au premier calcul, puis boucle de redémarrages. L'affirmation de R-13 (« le cache signale proprement ce refus ») était fausse. | `kynovarad` essaie le JIT au démarrage dans un processus fils (`pow::self_test`) et passe à l'interpréteur s'il échoue ; `KYNOVARA_RANDOMX_JIT=0` le désactive d'office. Vérifié sous le profil seccomp du relecteur : plantage reproduit (code 139) sans la correction, démarrage normal et repli sur l'interpréteur avec. | `interpreter_and_jit_give_the_same_hashes`, `tests/relecture_jit.rs`, essai seccomp |
+| V-3 | Moyenne | **64 vérifications RandomX imposées par bloc** : un pair envoyait 64 enfants faux d'un bloc P avant P (non sollicités : sous le plafond de débit) ; à l'arrivée de P, 65 empreintes sous le verrou principal (1,09 s mesurée au lieu de 18 ms), sans bannissement ; répétable à chaque bloc, et pendant la synchronisation (≈ ×60). R-14 (« une empreinte par connexion ») était donc optimiste. | Au plus 2 orphelins par parent manquant (`MAX_ORPHANS_PER_PARENT`) ; un orphelin écarté est redemandé pendant la synchronisation. | `relecture_les_orphelins_randomx_faux_sont_limites_par_parent` |
+| V-4 | Faible | Bannissement de 24 h des nœuds restés en 0.3.x : leurs blocs SHA-256 après l'activation (cible fausse) faisaient bannir leur adresse par le serveur d'amorçage, qui leur restait fermé une fois mis à jour. | Une cible fausse (vérification bon marché) déconnecte sans bannir. | revue |
+| V-5 | Info | Un orphelin rattaché dont la preuve RandomX n'a pas pu être calculée était jeté sans trace (RX-2 incomplet). | Signalé dans le compte rendu du bloc et journalisé en erreur. | revue |
+| V-6 | Info | Mineur : si un fil de calcul mourait après avoir reçu un modèle, le fil « mineur » pouvait l'attendre indéfiniment. Aucune panique atteignable n'a été trouvée. | Un canal de fin par modèle ; un fil mort n'est plus attendu. | `a_late_completion_signal_cannot_count_for_the_next_template` |
+| V-7 | Info | La relecture « de confiance » du disque suppose des règles inchangées entre l'écriture et la relecture : un changement futur des paramètres RandomX, ou un dossier `blocks` venu d'ailleurs, ferait relire des blocs RandomX jamais vérifiés. | Non corrigé : voir R-17. | — |
+| V-8 | Info | Tests qui promettaient plus qu'ils ne vérifiaient (partage des nonces, réutilisation du calculateur), chemin « RandomX dès la genèse » jamais exécuté, essai réel sans aucun bloc RandomX. | Tests renommés selon ce qu'ils vérifient ; test du démarrage d'un réseau en RandomX dès la genèse ; portée de l'essai réel précisée ci-dessus. | `a_network_can_start_with_randomx_from_genesis` |
+
+Affirmations de l'auteur confirmées par le relecteur : vecteurs officiels,
+refus d'une preuve SHA-256 après l'activation, inutilité d'un mensonge sur la
+hauteur, clé prise sur la branche du bloc, refus à la relecture des blocs
+écrits par une 0.3.x après l'activation, aucun code `unsafe`, mesures
+(≈ 16,5 ms par empreinte, ≈ 0,35 s par cache). Zones jugées saines :
+calendrier des clés (identique au `rx_seedheight` de Monero), choix de
+l'algorithme d'après la hauteur réelle, LWMA et ses bornes par algorithme,
+mineur (nonces disjoints, arrêt, changement de clé, libération de la
+mémoire), objets RandomX jamais partagés entre fils.
 
 ---
 
@@ -295,25 +410,31 @@ enregistré avant diffusion).
 
 | ID | Gravité | Description | Que faire | Bloquant mainnet ? |
 |---|---|---|---|---|
-| R-01 | **Critique** (mainnet) | **Preuve de travail SHA-256d** : la puissance des machines spécialisées de Bitcoin se loue à l'heure ; une jeune chaîne SHA-256 peut subir une attaque des 51 % (réécriture de l'historique, double dépense) pour un coût dérisoire tant qu'elle est petite. **Atténué en 0.2.0** : avec les points de contrôle signés, un attaquant majoritaire ne peut plus réécrire que les blocs postérieurs au dernier point (le dernier bloc si le fondateur signe chaque bloc) ; il peut encore miner la plupart des nouveaux blocs et retarder des transactions. | Changer d'algorithme (RandomX recommandé) ou minage fusionné : `docs/DECISIONS.md` § 4. | **Oui** |
+| R-01 | Moyenne (était **Critique**) | **Attaque des 51 %.** Avec SHA-256, la puissance des machines spécialisées de Bitcoin se louait à l'heure pour un coût dérisoire. **Traité en 0.4.0** : RandomX (testnet à partir du bloc 21 000, mainnet dès la genèse) ôte presque tout avantage à ces machines, et le travail SHA-256 d'avant l'activation ne peut plus l'emporter sur le travail RandomX (V-1). Reste : un attaquant qui réunit la majorité de la puissance RandomX (processeurs, ou puissance louée sur une place de marché RandomX, voir R-16) peut réécrire les blocs postérieurs au dernier point de contrôle signé (atténuation de la 0.2.0), miner la plupart des nouveaux blocs et retarder des transactions. | Éprouver RandomX sur le testnet ; nombreuses confirmations au début ; surveiller la puissance de calcul. | Non (plus bloquant, à éprouver) |
 | R-02 | Élevée (mainnet) | **Pas de synchronisation « en-têtes d'abord » ni de travail minimal codé en dur.** La protection actuelle (branches lointaines en mémoire) limite le remplissage du disque sans l'empêcher : (1) une branche partant de moins de 1 000 blocs sous le sommet (ou n'importe quelle branche pendant les 1 000 premiers blocs d'un réseau) est écrite sur le disque même plus légère, avant la vérification complète de ses transactions (blocs jusqu'à 1 Mo), et sa difficulté peut être abaissée en étirant ses horodatages (LWMA) : en simulation, 338 blocs pour le prix de 18 blocs honnêtes. Sur un petit testnet public, quelqu'un avec un PC ou une carte graphique peut donc remplir le disque des nœuds ; (2) un attaquant peut occuper la réserve en mémoire (bornée) ; (3) une branche concurrente partant de plus de 1 000 blocs sous le sommet et plus grosse que la réserve n'est pas adoptée automatiquement. **Atténué en 0.2.0** sur un réseau à points de contrôle : toute branche qui part d'avant le dernier point est refusée d'emblée, sans être stockée ; le point (1) ne concerne plus que les branches partant après lui. | En-têtes d'abord + travail minimal par version, puis éventuellement points de contrôle : `docs/LANCEMENT.md` phase 3, `docs/DECISIONS.md` § 11 ; difficulté de genèse du mainnet adaptée à la puissance attendue. | **Oui** |
 | R-03 | Moyenne | État en **mémoire** : ensemble UTXO, index des transactions confirmées (≈ 50 octets par transaction, pour toujours) et données d'annulation (1 000 blocs) ; chaîne **revalidée entièrement** à chaque démarrage. Remplir des blocs de petites transactions fait grandir la mémoire pour le prix des frais (environ 0,01 KYNO par bloc plein au tarif minimal). | Base de données sur disque (état UTXO, annulations, index facultatif). | Recommandé |
 | R-04 | Moyenne | Pas d'éviction des connexions entrantes : quelques adresses (8 × 4) peuvent occuper toutes les places entrantes. Les connexions **sortantes** ne sont pas touchées. | Politique d'éviction (groupes d'adresses, ancienneté, utilité). | Recommandé |
 | R-05 | Moyenne | Pas de chaînes de transactions non confirmées, ni de remplacement (RBF) ou de « l'enfant paie pour le parent » : une transaction aux frais trop bas peut rester en attente ; la monnaie rendue n'est dépensable qu'après confirmation. | Gestion des dépendances dans la mempool. | Recommandé |
 | R-06 | Faible | Pas de nœuds d'amorçage : un nouveau nœud doit recevoir `--addnode`. | Seeds (adresses fixes ou DNS). | Oui (pratique) |
 | R-07 | Faible | Ctrl+C arrête le nœud sans procédure d'arrêt. Les données restent sûres (chaque bloc est synchronisé sur disque, une fin interrompue est réparée), mais le carnet d'adresses n'est enregistré que toutes les 5 minutes. | Gestion du signal d'arrêt ; en attendant, préférer `kynovara-cli stop`. | Non |
-| R-08 | Info | **Windows vérifié** le 29 octobre 2026 sur ton PC (Rust 1.97.0, outils C++ Build Tools 2022) : compilation réussie et 159 tests sur 159 réussis (le 160ᵉ, une mesure de mémoire, ne tourne que sous Linux). Pas encore d'essai réseau entre plusieurs PC Windows. | Relancer `cargo test --workspace --release` après chaque modification. | Non |
+| R-08 | Info | **Windows vérifié** le 29 octobre 2026 sur ton PC (Rust 1.97.0, outils C++ Build Tools 2022) : compilation réussie et 159 tests sur 159 réussis (le 160ᵉ, une mesure de mémoire, ne tourne que sous Linux). Pas encore d'essai réseau entre plusieurs PC Windows. **0.4.0 vérifiée sous Windows par l'intégration continue** (`windows-latest`, 21 novembre 2026 : compilation, lint et tests réussis), mais pas sur ton PC : RandomX y exige en plus CMake (fourni avec Build Tools, composant « Outils CMake C++ pour Windows », mais absent du `PATH`), et le 20 novembre 2026 Smart App Control a bloqué l'exécution du script de compilation de `randomx-rs`. | Compiler dans Docker (Linux) sur ton PC ; la CI compile et teste sous Windows à chaque modification. | Non |
 | R-09 | Faible | Le RPC est en HTTP sans chiffrement : sûr en boucle locale (défaut), mais `--rpc-allow-remote` ferait circuler le jeton en clair. | Ne pas exposer le RPC ; tunnel SSH si besoin. | Non |
 | R-10 | Faible | Mempool pleine : chaque nouvelle transaction déclenche un tri complet (coût processeur limité par les frais à payer). Pas de plafond d'envoi de blocs anciens aux pairs (un pair peut redemander toute la chaîne ; il paie la même bande passante). | Index trié ; plafond d'envoi quotidien. | Non |
 | R-11 | Faible | Sous Windows, les fichiers sensibles (jeton RPC, portefeuille) ne reçoivent pas de droits d'accès explicites : ils héritent de ceux du dossier, d'où l'importance de garder les données dans `%APPDATA%` (défaut). | Droits explicites réservés au propriétaire. | Non |
 | R-12 | Info | L'effacement des secrets en mémoire est « au mieux » (copies internes des bibliothèques, saisie masquée du mot de passe, mémoire d'échange du système). Aucun `Cargo.lock` n'est livré (créé à la première compilation ; les bibliothèques de consensus sont de toute façon épinglées). | Chiffrement du disque ; conserver le `Cargo.lock` généré. | Non |
+| R-13 | Moyenne | **Code C++ dans le consensus** : RandomX (tevador/RandomX, avec compilateur à la volée) est du code non vérifié par Rust ; il a été audité en 2019 par Trail of Bits, X41, Kudelski Security et Quarkslab pour Monero. `randomx-rs` ne vérifie pas que la création d'une machine virtuelle a réussi, et RandomX ignore un refus de rendre la mémoire exécutable (`mprotect`) : le processus planterait au premier calcul au lieu de renvoyer une erreur. Kynovara essaie donc le JIT dans un processus fils au démarrage et passe à l'interpréteur s'il échoue (V-2) ; une machine virtuelle nulle (mémoire épuisée) ferait encore planter le nœud. La compilation exige CMake et un compilateur C++. | Suivre les versions de RandomX et de `randomx-rs` ; proposer les deux vérifications en amont. | Recommandé |
+| R-14 | Moyenne | **Coût de la vérification** : une preuve RandomX coûte ≈ 15 ms (quelques microsecondes en SHA-256), calculée sous le verrou principal du nœud. Toutes les règles bon marché passent avant, et un pair qui envoie un bloc à la preuve fausse est banni, mais chaque nouvelle connexion peut en faire calculer une. Un orphelin RandomX ne peut être vérifié qu'à l'arrivée de son parent : il n'est gardé que s'il est proche du sommet (RX-1), au plus 2 par parent manquant (V-3), dans une réserve bornée à 64 blocs et 16 Mo ; son expéditeur n'est pas pénalisé s'il s'avère faux. Le premier bloc d'une nouvelle clé coûte ≈ 0,3 s (préparation du cache). | En-têtes d'abord (R-02) ; vérifier hors du verrou principal ; préparer le cache de la clé suivante à l'avance. | Recommandé |
+| R-15 | Faible | **Mineur intégré en mode léger** : ≈ 60 essais/s par fil, environ dix fois moins que le mode rapide (jeu de données de 2 Gio partagé entre les fils, comme XMRig), car `randomx-rs` ne permet pas ce partage sans code `unsafe`. Un attaquant équipé d'un mineur optimisé a donc un avantage par processeur sur les mineurs honnêtes. Mémoire : ≈ 256 Mio par fil de minage, plus 512 Mio au plus pour la vérification. | Mode rapide (modification de `randomx-rs` en amont, ou exception `unsafe` relue) ; interface pour mineurs externes (XMRig). | Avant le mainnet |
+| R-16 | Info | **RandomX tel quel** (configuration de Monero) : la puissance des mineurs de Monero, ou celle louée sur les places de marché RandomX, peut être dirigée vers Kynovara sans rien modifier. C'est le risque R-01 en bien moindre mesure (puissance de processeurs, moins concentrée et moins louable que SHA-256). | Décider avant le mainnet d'une variante propre à Kynovara (autre sel Argon2 : `docs/DECISIONS.md` § 4) ; points de contrôle signés en attendant. | À décider |
+| R-17 | Info | **Relecture « de confiance » du disque** (V-7) : au démarrage, la preuve RandomX des blocs relus n'est pas recalculée, ce qui suppose des règles identiques à l'écriture et à la relecture. Un changement futur de la hauteur d'activation ou du calendrier des clés, ou un dossier `blocks` copié depuis une autre machine, ferait relire des blocs RandomX jamais vérifiés par ces règles. | Enregistrer une empreinte des règles dans le dossier de données et tout revérifier si elle change ; en attendant, ne jamais copier un dossier `blocks` d'une source non fiable. | Avant le mainnet |
 
 ---
 
 ## Avant un lancement public
 
-1. Trancher R-01 (algorithme) et implémenter R-02 (en-têtes d'abord, travail
-   minimal), puis R-03 à R-06.
+1. R-01 : fait en 0.4.0 (RandomX), à éprouver sur le testnet et à faire
+   relire de façon indépendante. Implémenter R-02 (en-têtes d'abord, travail
+   minimal), puis R-03 à R-06, R-14 et R-15 ; trancher R-16.
 2. Faire tourner un testnet public plusieurs semaines, avec des attaques
    simulées (minage égoïste, horodatages extrêmes, branches concurrentes,
    pairs malveillants).

@@ -11,9 +11,12 @@
 //! | cible         | 32     | gros-boutiste (lisible)     |
 //! | nonce         | 8      | petit-boutiste              |
 //!
-//! L'empreinte du bloc est le double SHA-256 de l'en-tête. La preuve de
-//! travail est valide si cette empreinte, lue comme un nombre de 256 bits en
-//! gros-boutiste, est inférieure ou égale à la cible.
+//! L'empreinte du bloc (son identifiant) est le double SHA-256 de l'en-tête.
+//! La preuve de travail dépend de la hauteur du bloc (voir `pow.rs`) : en
+//! SHA-256 double, elle est valide si cette empreinte, lue comme un nombre de
+//! 256 bits en gros-boutiste, est inférieure ou égale à la cible ; en
+//! RandomX, c'est l'empreinte RandomX de l'en-tête qui est comparée à la
+//! cible.
 
 use crate::encode::{Decode, DecodeError, Encode, Reader, put_len};
 use crate::hash::{Hash256, sha256d};
@@ -61,7 +64,8 @@ impl BlockHeader {
         sha256d(&self.to_array())
     }
 
-    /// La preuve de travail est-elle satisfaite (empreinte ≤ cible) ?
+    /// La preuve de travail **SHA-256 double** est-elle satisfaite (empreinte
+    /// ≤ cible) ? Pour un bloc RandomX, voir `pow::randomx_meets_target`.
     pub fn meets_target(&self) -> bool {
         hash_meets_target(&self.hash(), &self.target)
     }

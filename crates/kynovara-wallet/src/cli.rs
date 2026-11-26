@@ -13,8 +13,9 @@ use kynovara_core::encode::Encode;
 use kynovara_core::genesis::genesis_header;
 use kynovara_core::hash::Hash256;
 use kynovara_core::hex;
-use kynovara_core::miner::{MineResult, mine};
-use kynovara_core::params::{ConsensusParams, GenesisParams, Network};
+use kynovara_core::miner::{MineResult, mine, mine_randomx};
+use kynovara_core::params::{ConsensusParams, GenesisParams, Network, PowAlgorithm};
+use kynovara_core::pow::{GENESIS_RANDOMX_KEY, RandomXHasher};
 use kynovara_core::time::{format_utc, now_secs};
 use kynovara_core::tx::OutPoint;
 use serde_json::{Value, json};
@@ -323,6 +324,30 @@ fn s(v: &Value) -> String {
     }
 }
 
+/// Nom lisible d'un algorithme de preuve de travail (« randomx »…).
+fn pow_name(algorithm: &str) -> &str {
+    match algorithm {
+        "randomx" => "RandomX",
+        "sha256d" => "SHA-256 double",
+        other => other,
+    }
+}
+
+/// Algorithme de preuve de travail du prochain bloc, d'après `/v1/info`, avec
+/// la hauteur de passage à RandomX (None : nœud trop ancien pour le dire).
+fn pow_label(info: &Value) -> Option<String> {
+    let algorithm = info["pow"]["algorithm"].as_str()?;
+    let activation = info["pow"]["randomx_activation_height"].as_u64();
+    let height = info["height"].as_u64().unwrap_or(0);
+    Some(match (algorithm, activation) {
+        ("randomx", Some(h)) if h > 0 => format!("RandomX (depuis le bloc {h})"),
+        ("sha256d", Some(h)) => {
+            format!("SHA-256 double, RandomX à partir du bloc {h} (dans {} blocs)", h.saturating_sub(height + 1))
+        }
+        (other, _) => pow_name(other).to_string(),
+    })
+}
+
 fn cmd_info(o: &Options) -> Result<(), String> {
     let r = o.rpc()?.get("/v1/info")?;
     println!("Réseau          : {}", s(&r["network"]));
@@ -333,6 +358,9 @@ fn cmd_info(o: &Options) -> Result<(), String> {
         println!("Date du bloc    : {}", format_utc(t));
     }
     println!("Difficulté      : {:.3}", r["difficulty"].as_f64().unwrap_or(0.0));
+    if let Some(label) = pow_label(&r) {
+        println!("Algorithme      : {label}");
+    }
     println!("Pièces émises   : {} {TICKER}", s(&r["supply"]));
     println!("Mempool         : {} transaction(s), {} octets", s(&r["mempool"]["count"]), s(&r["mempool"]["bytes"]));
     println!("Pairs           : {} entrant(s), {} sortant(s)", s(&r["peers"]["inbound"]), s(&r["peers"]["outbound"]));
@@ -442,8 +470,9 @@ fn cmd_mempool(o: &Options) -> Result<(), String> {
 
 fn print_mining(r: &Value) -> Result<(), String> {
     if r["active"].as_bool() == Some(true) {
+        let algorithm = r["algorithm"].as_str().map(|a| format!(" en {}", pow_name(a))).unwrap_or_default();
         println!(
-            "Minage ACTIF : {} fil(s), {}",
+            "Minage ACTIF{algorithm} : {} fil(s), {}",
             s(&r["threads"]),
             format_hashrate(r["hashrate"].as_f64().unwrap_or(0.0))
         );
@@ -874,8 +903,21 @@ fn cmd_genesis(o: &Options) -> Result<(), String> {
         ..base.clone()
     }));
     let header = genesis_header(params, 0);
-    let threads = o.threads.unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get()));
-    eprintln!("Minage de la genèse {} ({} fil(s), cible {})…", o.network, threads, params.genesis.target);
+    let algorithm = params.pow_algorithm(0);
+    let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+    // RandomX : 256 Mio par fil ; au-delà de 4 fils, il faut le demander.
+    let default_threads = if algorithm == PowAlgorithm::RandomX { cores.min(4) } else { cores };
+    let threads = o.threads.unwrap_or(default_threads);
+    eprintln!(
+        "Minage de la genèse {} en {} ({} fil(s), cible {})…",
+        o.network,
+        pow_name(algorithm.name()),
+        threads,
+        params.genesis.target
+    );
+    if algorithm == PowAlgorithm::RandomX {
+        eprintln!("RandomX en mode léger : 256 Mio de mémoire par fil.");
+    }
     let stop = AtomicBool::new(false);
     let hashes = AtomicU64::new(0);
     let found = AtomicU64::new(u64::MAX);
@@ -884,14 +926,28 @@ fn cmd_genesis(o: &Options) -> Result<(), String> {
         for t in 0..threads {
             let (stop, hashes, found) = (&stop, &hashes, &found);
             scope.spawn(move || {
-                if let MineResult::Found(n) = mine(&header, t as u64, threads as u64, u64::MAX, stop, hashes) {
-                    found.store(n, Ordering::SeqCst);
-                    stop.store(true, Ordering::SeqCst);
+                let (start, step) = (t as u64, threads as u64);
+                let result = match algorithm {
+                    PowAlgorithm::Sha256d => Ok(mine(&header, start, step, u64::MAX, stop, hashes)),
+                    // Chaque fil a son calculateur, avec la clé fixe de la genèse.
+                    PowAlgorithm::RandomX => RandomXHasher::new(&GENESIS_RANDOMX_KEY)
+                        .and_then(|h| mine_randomx(&h, &header, start, step, u64::MAX, stop, hashes)),
+                };
+                match result {
+                    Ok(MineResult::Found(n)) => {
+                        found.store(n, Ordering::SeqCst);
+                        stop.store(true, Ordering::SeqCst);
+                    }
+                    Ok(_) => {}
+                    Err(e) => eprintln!("fil {t} : {e}"),
                 }
             });
         }
     });
     let nonce = found.load(Ordering::SeqCst);
+    if nonce == u64::MAX {
+        return Err("aucun nonce trouvé : le calcul RandomX a échoué dans tous les fils".into());
+    }
     let mut h = header;
     h.nonce = nonce;
     let secs = started.elapsed().as_secs_f64();

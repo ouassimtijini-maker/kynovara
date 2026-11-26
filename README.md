@@ -13,18 +13,22 @@ son propre réseau, son propre bloc de genèse, son propre minage.
 > ⚠️ **Réseau de test : les KYNO n'ont aucune valeur. Aucune vente, aucune
 > prévente, aucun investissement, aucune promesse.** Lis [AVIS.md](AVIS.md).
 
-> **État du projet : version 0.3.2, réseau de test public ouvert depuis le
+> **État du projet : version 0.4.0, réseau de test public ouvert depuis le
 > 31 octobre 2026.** Le réseau principal (« mainnet ») n'est pas lancé. Avant
 > tout lancement public avec de la vraie valeur, lis
 > [docs/LANCEMENT.md](docs/LANCEMENT.md) et [AUDIT.md](AUDIT.md).
+
+> 🔁 **Mise à jour obligatoire avant le bloc 21 000 (vers le 2 décembre
+> 2026)** : la preuve de travail du testnet passe de SHA-256 à **RandomX**.
+> Les nœuds 0.3.x resteront bloqués sur l'ancienne chaîne.
 
 ## Rejoindre le réseau de test
 
 Avec Docker, en trois commandes (détails : [docs/REJOINDRE.md](docs/REJOINDRE.md)) :
 
 ```sh
-docker build -t kynovara:0.3.2 .
-docker run -d --name kynovara --restart unless-stopped --cpus 2 -v kynovara:/data kynovara:0.3.2
+docker build -t kynovara:0.4.0 .
+docker run -d --name kynovara --restart unless-stopped --cpus 2 -v kynovara:/data kynovara:0.4.0
 docker exec kynovara kynovara-cli --datadir /data info
 ```
 
@@ -51,7 +55,7 @@ son auteur au [Mur des casseurs](MUR-DES-CASSEURS.md).
 
 En bref, techniquement :
 
-- **Preuve de travail** SHA-256 double (comme Bitcoin), bloc toutes les **2 minutes** en moyenne ;
+- **Preuve de travail RandomX** (comme Monero), conçue pour les processeurs ordinaires : pas d'avantage décisif pour les machines spécialisées (ASIC), ni pour la puissance SHA-256 louée à l'heure ; bloc toutes les **2 minutes** en moyenne (le testnet passe de SHA-256 à RandomX au bloc 21 000) ;
 - **ajustement de difficulté LWMA** à chaque bloc (réagit vite aux changements de puissance de calcul) ;
 - **modèle UTXO** (comme Bitcoin), signatures **Ed25519** non malléables ;
 - **émission** : 50 KYNO par bloc, divisée par deux environ tous les 4 ans, environ **105 millions** de KYNO au total, **aucune pré-extraction** ;
@@ -60,7 +64,7 @@ En bref, techniquement :
 - réseau pair-à-pair maison (TCP), synchronisation, relais, bannissement des pairs abusifs ;
 - **période de rodage** : pendant un temps fixé d'avance, on mine mais aucun envoi n'est possible ; ensuite, crypto normale, automatiquement ;
 - **points de contrôle signés** par le fondateur pendant le lancement : un attaquant majoritaire ne peut plus réécrire l'historique signé (clé maîtresse hors ligne, alerte en cas de contradiction, fin programmée) ;
-- **aucune ligne de code `unsafe`**, dépendances limitées à des bibliothèques reconnues.
+- **aucune ligne de code `unsafe`** dans Kynovara, dépendances limitées à des bibliothèques reconnues (dont l'implémentation C++ de référence de RandomX, auditée quatre fois pour Monero).
 
 Le nom **Kynovara**, le ticker **KYNO** et les préfixes d'adresse
 **`kyn` / `tkyn` / `rkyn`** sont choisis ; la vérification de marque et l'avis
