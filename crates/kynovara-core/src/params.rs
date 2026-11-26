@@ -309,14 +309,17 @@ pub static TESTNET: ConsensusParams = ConsensusParams {
     default_p2p_port: 19733,
     default_rpc_port: 19734,
     pow_limit: U256::low_bits(240),
-    // Mise à jour du réseau (décidée le 20 novembre 2026, hauteur alors
-    // 12 920) : SHA-256 double jusqu'au bloc 15 999, RandomX à partir du bloc
-    // 16 000 (vers le 25 novembre 2026). Un nœud 0.3.x refuse les blocs RandomX
-    // et reste sur l'ancienne chaîne : il faut passer en 0.4.0 avant.
+    // Mise à jour du réseau : SHA-256 double jusqu'au bloc 20 999, RandomX à
+    // partir du bloc 21 000 (vers le 2 décembre 2026). Prévue d'abord au bloc
+    // 16 000 (décidée le 20 novembre 2026, hauteur alors 12 920) : ce bloc est
+    // passé vers le 25 novembre alors que tous les nœuds étaient encore en
+    // 0.3.2, donc sans scission ; repoussée le 26 novembre, hauteur alors
+    // 16 838. Un nœud 0.3.x refuse les blocs RandomX et reste sur l'ancienne
+    // chaîne : il faut passer en 0.4.0 avant.
     // Cible initiale : 2^242, environ 16 000 essais par bloc, soit à peu près
     // 2 minutes pour deux fils en mode léger (~60 essais/s chacun).
     randomx: Some(RandomXParams {
-        activation_height: 16_000,
+        activation_height: 21_000,
         pow_limit: U256::low_bits(248),
         initial_target: U256::low_bits(242),
         key_interval: 2048,
@@ -492,16 +495,20 @@ mod tests {
         // Après les envois et le dernier point inscrit dans la version.
         assert!(h > TESTNET.transfers_unlock_height);
         assert!(TESTNET.release_checkpoints.iter().all(|(cp, _)| *cp < h));
+        // Le testnet a dépassé le bloc 16 000 en SHA-256 (tous les nœuds en
+        // 0.3.2) et comptait 16 838 blocs le 26 novembre 2026 : une activation
+        // à une hauteur déjà atteinte couperait les nœuds 0.4.0 de la chaîne.
+        assert!(h > 16_838);
         assert_eq!(TESTNET.pow_algorithm(h - 1), PowAlgorithm::Sha256d);
         assert_eq!(TESTNET.pow_algorithm(h), PowAlgorithm::RandomX);
         assert_eq!(TESTNET.pow_limit_at(h - 1), TESTNET.pow_limit);
         assert_eq!(TESTNET.pow_limit_at(h), rx.pow_limit);
         assert_eq!(TESTNET.randomx_key_height(h - 1), None);
-        // Bloc 16 000 : clé du bloc 14 336 (7 × 2 048), jusqu'au bloc 16 448
+        // Bloc 21 000 : clé du bloc 20 480 (10 × 2 048), jusqu'au bloc 22 592
         // (exemple de SPECIFICATION.md, § 6 bis).
-        assert_eq!(TESTNET.randomx_key_height(16_000), Some(14_336));
-        assert_eq!(TESTNET.randomx_key_height(16_448), Some(14_336));
-        assert_eq!(TESTNET.randomx_key_height(16_449), Some(16_384));
+        assert_eq!(TESTNET.randomx_key_height(21_000), Some(20_480));
+        assert_eq!(TESTNET.randomx_key_height(22_592), Some(20_480));
+        assert_eq!(TESTNET.randomx_key_height(22_593), Some(22_528));
     }
 
     #[test]

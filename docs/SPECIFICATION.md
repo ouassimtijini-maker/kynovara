@@ -13,12 +13,12 @@ de référence est dans `crates/kynovara-core`.
 | Octets magiques (P2P) | `KYNM` | `KYNT` | `KYNR` |
 | Ports P2P / RPC | 9733 / 9734 | 19733 / 19734 | 29733 / 29734 |
 | Temps de bloc visé (T) | 120 s | 120 s | 120 s |
-| Preuve de travail (§ 6 bis) | RandomX dès la genèse | SHA-256 double jusqu'au bloc 15 999, **RandomX à partir du bloc 16 000** | SHA-256 double |
+| Preuve de travail (§ 6 bis) | RandomX dès la genèse | SHA-256 double jusqu'au bloc 20 999, **RandomX à partir du bloc 21 000** | SHA-256 double |
 | Fenêtre LWMA (N) | 120 blocs | 60 blocs | — (difficulté fixe) |
 | Cible minimale (`pow_limit`), SHA-256 double | — | 2²⁴⁰ − 1 | 2²⁵⁵ − 1 |
 | Cible minimale, RandomX | 2²⁴⁸ − 1 (provisoire) | 2²⁴⁸ − 1 | — |
 | Cible de la genèse | 2²⁴⁰ − 1 (provisoire, à fixer au lancement) | 2²²⁶ − 1 | 2²⁵⁵ − 1 |
-| Cible des premiers blocs RandomX | celle de la genèse | 2²⁴² − 1 (blocs 16 000 à 16 060) | — |
+| Cible des premiers blocs RandomX | celle de la genèse | 2²⁴² − 1 (blocs 21 000 à 21 060) | — |
 | Horodatage max. dans le futur (FTL) | 720 s | 360 s | 86 400 s |
 | Récompense initiale | 50 KYNO | 50 KYNO | 50 KYNO |
 | Division par deux tous les | 1 051 200 blocs (≈ 4 ans) | 1 051 200 | 150 |
@@ -213,7 +213,7 @@ référence tevador/RandomX), via la bibliothèque `randomx-rs` épinglée à la
 version 1.6.0.
 
 - **Algorithme d'un bloc** : RandomX si `h ≥ activation` (0 sur le mainnet,
-  16 000 sur le testnet), SHA-256 double sinon. Le regtest reste en SHA-256
+  21 000 sur le testnet), SHA-256 double sinon. Le regtest reste en SHA-256
   double.
 - **Preuve** : `randomx(clé, en-tête)` (116 octets), lu comme entier
   gros-boutiste, ≤ cible.
@@ -233,9 +233,9 @@ version 1.6.0.
   elle-même (si elle est en RandomX) est l'empreinte nulle (32 octets à 0).
 - **Ajustement de difficulté** : il repart de zéro à l'activation (§ 7).
 
-Exemple (testnet) : le bloc 16 000 a pour clé l'empreinte du bloc 14 336
-(7 × 2 048), qui sert jusqu'au bloc 16 448 ; le bloc 16 449 prend celle du
-bloc 16 384.
+Exemple (testnet) : le bloc 21 000 a pour clé l'empreinte du bloc 20 480
+(10 × 2 048), qui sert jusqu'au bloc 22 592 ; le bloc 22 593 prend celle du
+bloc 22 528.
 
 Mise en œuvre (hors consensus) : **mode léger**, un cache de 256 Mio par clé
 (préparé en ≈ 0,3 s) et ≈ 15 ms par empreinte, soit ≈ 60 essais par seconde et
@@ -287,8 +287,8 @@ Les blocs récents pèsent plus lourd ; une longue pause est plafonnée à 6 T ;
 un horodatage qui recule ne crée pas de durée négative. En regtest, la cible
 vaut toujours `pow_limit`.
 
-Au passage à RandomX du testnet, les blocs 16 000 à 16 060 ont donc la cible
-2²⁴² − 1 (environ 16 000 essais), et LWMA reprend au bloc 16 061 avec une
+Au passage à RandomX du testnet, les blocs 21 000 à 21 060 ont donc la cible
+2²⁴² − 1 (environ 16 000 essais), et LWMA reprend au bloc 21 061 avec une
 fenêtre entièrement RandomX.
 
 ## 8. Travail et choix de la chaîne [consensus]

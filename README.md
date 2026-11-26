@@ -18,7 +18,7 @@ son propre réseau, son propre bloc de genèse, son propre minage.
 > tout lancement public avec de la vraie valeur, lis
 > [docs/LANCEMENT.md](docs/LANCEMENT.md) et [AUDIT.md](AUDIT.md).
 
-> 🔁 **Mise à jour obligatoire avant le bloc 16 000 (vers le 25 novembre
+> 🔁 **Mise à jour obligatoire avant le bloc 21 000 (vers le 2 décembre
 > 2026)** : la preuve de travail du testnet passe de SHA-256 à **RandomX**.
 > Les nœuds 0.3.x resteront bloqués sur l'ancienne chaîne.
 
@@ -55,7 +55,7 @@ son auteur au [Mur des casseurs](MUR-DES-CASSEURS.md).
 
 En bref, techniquement :
 
-- **Preuve de travail RandomX** (comme Monero), conçue pour les processeurs ordinaires : pas d'avantage décisif pour les machines spécialisées (ASIC), ni pour la puissance SHA-256 louée à l'heure ; bloc toutes les **2 minutes** en moyenne (le testnet passe de SHA-256 à RandomX au bloc 16 000) ;
+- **Preuve de travail RandomX** (comme Monero), conçue pour les processeurs ordinaires : pas d'avantage décisif pour les machines spécialisées (ASIC), ni pour la puissance SHA-256 louée à l'heure ; bloc toutes les **2 minutes** en moyenne (le testnet passe de SHA-256 à RandomX au bloc 21 000) ;
 - **ajustement de difficulté LWMA** à chaque bloc (réagit vite aux changements de puissance de calcul) ;
 - **modèle UTXO** (comme Bitcoin), signatures **Ed25519** non malléables ;
 - **émission** : 50 KYNO par bloc, divisée par deux environ tous les 4 ans, environ **105 millions** de KYNO au total, **aucune pré-extraction** ;

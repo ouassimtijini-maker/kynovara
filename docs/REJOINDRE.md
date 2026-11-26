@@ -3,7 +3,7 @@
 > ⚠️ **Réseau de test : les KYNO n'ont aucune valeur. Aucune vente, aucune
 > prévente, aucun investissement, aucune promesse.** Lis [AVIS.md](../AVIS.md).
 
-> 🔁 **Mise à jour obligatoire avant le bloc 16 000 (vers le 25 novembre
+> 🔁 **Mise à jour obligatoire avant le bloc 21 000 (vers le 2 décembre
 > 2026)** : à partir de ce bloc, la preuve de travail passe de SHA-256 à
 > **RandomX**. Un nœud 0.3.x refusera les nouveaux blocs et restera bloqué sur
 > une ancienne chaîne. Passe en 0.4.0 (section « Mettre à jour » plus bas) ;
@@ -21,7 +21,7 @@ défaut, aucune connexion venue d'Internet.
 | Bloc de genèse | `00000000a8fcd29f180f31ecbe6d2b3a6893eabe8b74c4c65abf3257a9258505` |
 | Adresses | `tkyn1…` |
 | Envois | possibles à partir du bloc 6 000 (vers le 7 novembre 2026) |
-| Preuve de travail | SHA-256 double jusqu'au bloc 15 999, **RandomX** à partir du bloc 16 000 |
+| Preuve de travail | SHA-256 double jusqu'au bloc 20 999, **RandomX** à partir du bloc 21 000 |
 
 Installer Docker : [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 sous Windows ou macOS ; sous Ubuntu ou Debian, `sudo apt install docker.io`
@@ -88,7 +88,7 @@ docker run -d --name kynovara --restart unless-stopped --cpus 2 -v kynovara:/dat
 Le minage reprend tout seul après un redémarrage de l'ordinateur. Une
 récompense de minage devient dépensable 100 blocs plus tard (environ 3 h 20).
 
-À partir du bloc 16 000, le minage se fait en **RandomX**, conçu pour les
+À partir du bloc 21 000, le minage se fait en **RandomX**, conçu pour les
 processeurs ordinaires : compte environ **60 essais par seconde et par fil**
 (contre des millions en SHA-256 : c'est normal, la difficulté est réglée en
 conséquence) et 256 Mio de mémoire par fil. Le premier bloc de chaque
@@ -118,9 +118,9 @@ docker logs -f kynovara                                                # journal
 - **Mettre à jour** : construis la nouvelle image (`docker build -t
   kynovara:<version> .`), puis `docker rm -f kynovara` et relance `docker run`
   avec la nouvelle image. Le volume garde la chaîne et le portefeuille. Pour
-  la 0.4.0 (RandomX), fais-le **avant le bloc 16 000** ; `info` affiche
-  « RandomX à partir du bloc 16000 (dans N blocs) » quand c'est fait.
-- **Blocs RandomX** : à partir du bloc 16 000, l'identifiant d'un bloc ne
+  la 0.4.0 (RandomX), fais-le **avant le bloc 21 000** ; `info` affiche
+  « RandomX à partir du bloc 21000 (dans N blocs) » quand c'est fait.
+- **Blocs RandomX** : à partir du bloc 21 000, l'identifiant d'un bloc ne
   commence plus par des zéros. C'est normal : il reste le double SHA-256 de
   l'en-tête, mais la preuve de travail est désormais l'empreinte RandomX
   ([spécification](SPECIFICATION.md), § 6 bis).
@@ -151,7 +151,7 @@ mine, recreate the container with
 `--mine --mining-address <your-tkyn1-address> --threads 2`. Transfers are
 locked until block 6,000 (around November 7, 2026).
 
-**Mandatory upgrade before block 16,000 (around November 25, 2026)**: proof
+**Mandatory upgrade before block 21,000 (around December 2, 2026)**: proof
 of work switches from SHA-256 to RandomX at that block; 0.3.x nodes will stay
 stuck on an old chain. RandomX needs about 256 MiB per mining thread plus up
 to 512 MiB for block verification, and mines about 60 hashes per second per

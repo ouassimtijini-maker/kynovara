@@ -22,7 +22,8 @@ principal voit le jour.
    dépenser les KYNO d'un autre portefeuille, faire refuser des transactions
    valides par tout le réseau.
 
-**Mise à jour du réseau au bloc 16 000** : la preuve de travail passe de
+**Mise à jour du réseau au bloc 21 000** (vers le 2 décembre 2026, prévue
+d'abord au bloc 16 000) : la preuve de travail passe de
 SHA-256 à **RandomX** (version 0.4.0, [AUDIT.md](AUDIT.md)). Cibles en plus,
 jusqu'au bloc 25 000 : faire accepter un bloc RandomX sans la bonne preuve
 (mauvaise clé, mauvaise hauteur, preuve SHA-256), faire suivre aux nœuds 0.4.0

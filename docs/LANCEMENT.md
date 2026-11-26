@@ -25,8 +25,8 @@ Travaux recommandés avant un réseau public (voir aussi `AUDIT.md`,
 section « Limites connues ») :
 
 1. ~~Changer d'algorithme de preuve de travail si décidé (et le tester).~~
-   **Fait en 0.4.0** : RandomX, activé sur le testnet au bloc 16 000
-   (`DECISIONS.md` § 4). Reste à le faire relire de façon indépendante et à
+   **Fait en 0.4.0** : RandomX, activé sur le testnet au bloc 21 000
+   (`DECISIONS.md` § 4). Relu de façon indépendante (`AUDIT.md`) ; reste à
    l'éprouver sur le testnet ; à trancher : variante RandomX propre et mineur
    en mode rapide (`AUDIT.md`, R-15 et R-16).
 2. **Synchronisation par en-têtes d'abord** (« headers-first ») : télécharger

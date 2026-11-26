@@ -53,9 +53,12 @@ C'est la décision la plus importante pour la sécurité.
 - **Testnet** : mise à jour du réseau à une hauteur fixe plutôt qu'un
   nouveau testnet, pour garder l'historique, les points de contrôle signés et
   le défi, et pour s'exercer à une vraie mise à jour de consensus : SHA-256
-  double jusqu'au bloc 15 999, RandomX à partir du bloc **16 000** (vers le
-  25 novembre 2026 ; hauteur au moment de la décision : 12 920). Tous les
-  nœuds doivent être en 0.4.0 avant.
+  double jusqu'au bloc 20 999, RandomX à partir du bloc **21 000** (vers le
+  2 décembre 2026). Tous les nœuds doivent être en 0.4.0 avant. Prévue
+  d'abord au bloc 16 000 (décision prise à la hauteur 12 920) : ce bloc est
+  passé vers le 25 novembre avant toute mise à jour, et tout le réseau est
+  resté en 0.3.2, donc sans scission. Repoussée le 26 novembre (hauteur
+  16 838), avec environ 6 jours de marge.
 - **Mainnet** : RandomX dès la genèse.
 - **Regtest** : SHA-256 double (blocs instantanés pour les tests).
 - Clé RandomX et intervalles : ceux de Monero (`SPECIFICATION.md`, § 6 bis).
